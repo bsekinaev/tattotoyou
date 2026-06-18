@@ -1,0 +1,42 @@
+services:
+  # ============================================
+  # POSTGRESQL
+  # ============================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: tattoo_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: tattoo_assistant
+      POSTGRES_USER: tattoo_user
+      POSTGRES_PASSWORD: change_me_in_production
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tattoo_user -d tattoo_assistant"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # REDIS
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: tattoo_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:

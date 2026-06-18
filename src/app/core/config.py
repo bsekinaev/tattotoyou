@@ -130,19 +130,19 @@ class Settings(BaseSettings):
 
     @property
     def postgres_dsn(self) -> str:
-        """DSN для asyncpg."""
+        """DSN для асинхронного psycopg."""
         password = self.postgres_password.get_secret_value()
         return (
-            f"postgresql+asyncpg://{self.postgres_user}:{password}"
+            f"postgresql+psycopg://{self.postgres_user}:{password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
     @property
     def postgres_dsn_sync(self) -> str:
-        """DSN для Alembic (синхронный)."""
+        """DSN для Alembic (синхронный psycopg)."""
         password = self.postgres_password.get_secret_value()
         return (
-            f"postgresql://{self.postgres_user}:{password}"
+            f"postgresql+psycopg://{self.postgres_user}:{password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
