@@ -38,3 +38,14 @@ class MessageRepository(BaseRepository[Message]):
             platform_message_id=platform_message_id,
             **kwargs
         )
+
+    async def get_history(self, conversation_id: str, limit: int = 10) -> list[Message]:
+        """Получить последние N сообщений диалога в хронологическом порядке."""
+        result = await self.session.execute(
+            select(self.model)
+            .where(self.model.conversation_id == conversation_id)
+            .order_by(self.model.created_at.desc())
+            .limit(limit)
+        )
+        # Разворачиваем список, чтобы история шла от старого к новому (для LLM)
+        return list(reversed(result.scalars().all()))

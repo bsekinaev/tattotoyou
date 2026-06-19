@@ -1,29 +1,19 @@
-"""
-Telegram Webhook Endpoint.
-Тонкий контроллер: только проверка безопасности и делегирование работы сервису.
-"""
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+import asyncio
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.infrastructure.db.session import get_db_session
+from app.infrastructure.db.session import get_db_session, async_session_factory
 from app.infrastructure.db.dependencies import (
-    get_platform_repo,
-    get_client_repo,
-    get_conversation_repo,
-    get_message_repo,
+    get_platform_repo, get_client_repo, get_conversation_repo, get_message_repo,
 )
 from app.services.platforms.telegram.client import get_telegram_client, TelegramClient
 from app.services.platforms.telegram.schemas import TelegramUpdate
 from app.services.platforms.telegram.service import TelegramMessageService
-
-# Импорты репозиториев для type hints (опционально, но полезно для IDE)
+from app.services.ai.gigachat_client import gigachat_client
 from app.infrastructure.db.repositories import (
-    PlatformRepository,
-    ClientRepository,
-    ConversationRepository,
-    MessageRepository,
+    PlatformRepository, ClientRepository, ConversationRepository, MessageRepository,
 )
 
 router = APIRouter()
@@ -31,53 +21,53 @@ logger = get_logger(__name__)
 settings = get_settings()
 
 
+async def _process_in_background(update_dict: dict, webhook_secret: str):
+    """
+    Фоновая задача. Она сама создает свою сессию БД,
+    так как сессия из Depends(get_db_session) уже закрыта!
+    """
+    # Восстанавливаем Pydantic-модель из словаря
+    update = TelegramUpdate(**update_dict)
+
+    # Создаем НОВУЮ сессию и репозитории для фона
+    async with async_session_factory() as db:
+        service = TelegramMessageService(
+            db=db,
+            platform_repo=PlatformRepository(db),
+            client_repo=ClientRepository(db),
+            conversation_repo=ConversationRepository(db),
+            message_repo=MessageRepository(db),
+            tg_client=get_telegram_client(),
+            ai_client=gigachat_client,
+        )
+        try:
+            await service.process_update(update, webhook_secret)
+        except Exception as e:
+            logger.exception("background_task_failed", error=str(e))
+
+
 @router.post("/telegram")
 async def telegram_webhook(
     request: Request,
     update: TelegramUpdate,
-    # Инфраструктурные зависимости
+    background_tasks: BackgroundTasks,  # 🆕 FastAPI BackgroundTasks
     db: AsyncSession = Depends(get_db_session),
-    platform_repo: PlatformRepository = Depends(get_platform_repo),
-    client_repo: ClientRepository = Depends(get_client_repo),
-    conversation_repo: ConversationRepository = Depends(get_conversation_repo),
-    message_repo: MessageRepository = Depends(get_message_repo),
-    tg_client: TelegramClient = Depends(get_telegram_client),
-    # Безопасность
     x_telegram_bot_api_secret_token: str | None = Header(None),
 ):
-    """
-    Эндпоинт для приёма webhook'ов от Telegram.
-    """
-    # ============================================
-    # 1. БЕЗОПАСНОСТЬ: Проверка секретного токена
-    # ============================================
+    # 1. Безопасность
     expected_secret = settings.telegram_webhook_secret.get_secret_value()
     if x_telegram_bot_api_secret_token != expected_secret:
-        logger.warning(
-            "invalid_webhook_secret",
-            ip=request.client.host if request.client else "unknown"
-        )
         raise HTTPException(status_code=403, detail="Invalid secret token")
 
-    logger.info(
-        "telegram_update_received",
-        update_id=update.update_id,
-        chat_id=update.message.chat.id if update.message else None
+    logger.info("webhook_received", update_id=update.update_id)
+
+    # 2. Делегируем в фон!
+    # Передаем update как словарь (model_dump), чтобы он не зависел от жизненного цикла request
+    background_tasks.add_task(
+        _process_in_background,
+        update.model_dump(by_alias=True),
+        expected_secret
     )
 
-    # ============================================
-    # 2. БИЗНЕС-ЛОГИКА: Делегируем сервису
-    # ============================================
-    service = TelegramMessageService(
-        db=db,
-        platform_repo=platform_repo,
-        client_repo=client_repo,
-        conversation_repo=conversation_repo,
-        message_repo=message_repo,
-        tg_client=tg_client,
-    )
-
-    await service.process_update(update, expected_secret)
-
-    # Telegram требует обязательного ответа 200 OK
+    # 3. Мгновенно отвечаем Telegram 200 OK
     return {"status": "ok"}
