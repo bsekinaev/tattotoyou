@@ -10,6 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.infrastructure.db.session import init_db, close_db
+from app.api.webhooks.telegram import router as telegram_router
+from app.services.platforms.telegram.client import tg_client
 
 setup_logging()
 logger = get_logger(__name__)
@@ -18,31 +20,25 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
-
     logger.info(
         "application_starting",
         app_name=settings.app_name,
-        version=settings.app_version
+        version=settings.app_version,
     )
 
-    # Инициализируем базу данных
     await init_db()
-
     logger.info("application_started")
 
-    yield  # <-- здесь приложение работает
+    yield  # <-- приложение работает
 
     logger.info("application_shutting_down")
-
-    # Закрываем пул соединений
     await close_db()
-
+    await tg_client.close()
     logger.info("application_stopped")
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
-
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
@@ -51,7 +47,6 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:3000"] if settings.debug else [],
@@ -66,10 +61,9 @@ def create_app() -> FastAPI:
 
     @app.get("/", tags=["system"])
     async def root():
-        return {
-            "service": settings.app_name,
-            "version": settings.app_version,
-        }
+        return {"service": settings.app_name, "version": settings.app_version}
+
+    app.include_router(telegram_router, prefix="/webhook", tags=["webhooks"])
 
     return app
 

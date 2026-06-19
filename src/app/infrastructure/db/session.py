@@ -2,6 +2,8 @@
 Настройка асинхронного подключения к PostgreSQL.
 """
 from collections.abc import AsyncGenerator
+from fastapi import HTTPException
+from sqlalchemy import text
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -40,10 +42,13 @@ async_session_factory = async_sessionmaker(
 # DEPENDENCY ДЛЯ FASTAPI
 # ============================================
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
+    """Dependency для FastAPI."""
     async with async_session_factory() as session:
         try:
             yield session
             await session.commit()
+        except HTTPException:
+            raise
         except Exception:
             await session.rollback()
             logger.exception("database_session_error")
@@ -58,8 +63,7 @@ async def init_db() -> None:
     """Инициализация БД при старте приложения."""
     logger.info("database_initializing")
     async with async_engine.begin() as conn:
-        # Простая проверка, что БД отвечает
-        await conn.execute("SELECT 1")
+        await conn.execute(text("SELECT 1"))
     logger.info("database_initialized")
 
 async def close_db() -> None:
@@ -67,3 +71,4 @@ async def close_db() -> None:
     logger.info("database_closing")
     await async_engine.dispose()
     logger.info("database_closed")
+

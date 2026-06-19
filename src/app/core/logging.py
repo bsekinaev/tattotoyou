@@ -100,4 +100,4 @@ def get_logger(name: str | None = None):
         logger = get_logger(__name__)
         logger.info("user logged in", user_id=123, ip="1.2.3.4")
     """
-    return structlog.get_logger(name)
+    return structlog.get_logger(__name__)

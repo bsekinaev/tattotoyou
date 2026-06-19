@@ -94,6 +94,13 @@ class Message(Base):
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
+    platform_message_id: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        index=True,  # Индекс для быстрого поиска сообщений по ID из соцсети
+        comment="ID сообщения в самой платформе (например, в Telegram)"
+    )
+
     # Метаданные от AI
     ai_model: Mapped[str | None] = mapped_column(String(50), nullable=True)
     ai_tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
