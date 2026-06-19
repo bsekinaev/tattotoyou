@@ -1,33 +1,49 @@
 """
 Telegram Webhook Endpoint.
-Принимает апдейты, сохраняет их в БД и отправляет тестовый ответ.
+Тонкий контроллер: только проверка безопасности и делегирование работы сервису.
 """
-from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.domain.clients.models import Client, Platform
-from app.domain.conversations.models import Conversation, Message
 from app.infrastructure.db.session import get_db_session
-from app.services.platforms.telegram.client import TelegramClient
+from app.infrastructure.db.dependencies import (
+    get_platform_repo,
+    get_client_repo,
+    get_conversation_repo,
+    get_message_repo,
+)
+from app.services.platforms.telegram.client import get_telegram_client, TelegramClient
 from app.services.platforms.telegram.schemas import TelegramUpdate
+from app.services.platforms.telegram.service import TelegramMessageService
+
+# Импорты репозиториев для type hints (опционально, но полезно для IDE)
+from app.infrastructure.db.repositories import (
+    PlatformRepository,
+    ClientRepository,
+    ConversationRepository,
+    MessageRepository,
+)
 
 router = APIRouter()
 logger = get_logger(__name__)
 settings = get_settings()
 
-# Инициализируем клиент (в проде лучше делать через Dependency Injection, но для MVP сойдёт)
-tg_client = TelegramClient()
-
 
 @router.post("/telegram")
 async def telegram_webhook(
-        request: Request,
-        update: TelegramUpdate,  # FastAPI сам распарсит JSON в Pydantic-модель
-        db: AsyncSession = Depends(get_db_session),
-        x_telegram_bot_api_secret_token: str | None = Header(None),
+    request: Request,
+    update: TelegramUpdate,
+    # Инфраструктурные зависимости
+    db: AsyncSession = Depends(get_db_session),
+    platform_repo: PlatformRepository = Depends(get_platform_repo),
+    client_repo: ClientRepository = Depends(get_client_repo),
+    conversation_repo: ConversationRepository = Depends(get_conversation_repo),
+    message_repo: MessageRepository = Depends(get_message_repo),
+    tg_client: TelegramClient = Depends(get_telegram_client),
+    # Безопасность
+    x_telegram_bot_api_secret_token: str | None = Header(None),
 ):
     """
     Эндпоинт для приёма webhook'ов от Telegram.
@@ -37,93 +53,31 @@ async def telegram_webhook(
     # ============================================
     expected_secret = settings.telegram_webhook_secret.get_secret_value()
     if x_telegram_bot_api_secret_token != expected_secret:
-        logger.warning("invalid_webhook_secret", ip=request.client.host if request.client else "unknown")
+        logger.warning(
+            "invalid_webhook_secret",
+            ip=request.client.host if request.client else "unknown"
+        )
         raise HTTPException(status_code=403, detail="Invalid secret token")
 
-    # Игнорируем апдейты без текстовых сообщений (например, заход в чат)
-    if not update.message or not update.message.text:
-        return {"status": "ignored"}
-
-    chat_id = update.message.chat.id
-    text = update.message.text
-    logger.info("telegram_update_received", chat_id=chat_id, text=text)
-
-    # ============================================
-    # 2. БИЗНЕС-ЛОГИКА: Сохранение в БД
-    # ============================================
-
-    # 2.1. Get-or-Create Платформы
-    result = await db.execute(select(Platform).where(Platform.name == "telegram"))
-    platform = result.scalar_one_or_none()
-    if not platform:
-        platform = Platform(name="telegram", webhook_secret=expected_secret)
-        db.add(platform)
-        await db.flush()  # flush нужен, чтобы получить platform.id до коммита
-
-    # 2.2. Get-or-Create Клиента
-    external_id = str(chat_id)
-    result = await db.execute(
-        select(Client).where(
-            Client.platform_id == platform.id,
-            Client.external_id == external_id
-        )
-    )
-    client = result.scalar_one_or_none()
-    if not client:
-        client = Client(
-            platform_id=platform.id,
-            external_id=external_id,
-            display_name=update.message.chat.first_name or "Unknown",
-            username=update.message.chat.username,
-        )
-        db.add(client)
-        await db.flush()
-
-    # 2.3. Get-or-Create Активного Диалога
-    # Считаем диалог активным, если было сообщение за последние 24 часа
-    day_ago = datetime.now(timezone.utc) - timedelta(hours=24)
-    result = await db.execute(
-        select(Conversation).where(
-            Conversation.client_id == client.id,
-            Conversation.status == "active",
-            Conversation.last_activity_at > day_ago,
-        ).order_by(Conversation.last_activity_at.desc())
-    )
-    conversation = result.scalar_one_or_none()
-
-    if not conversation:
-        conversation = Conversation(client_id=client.id, status="active")
-        db.add(conversation)
-        await db.flush()
-
-    # Обновляем время последней активности
-    conversation.last_activity_at = datetime.now(timezone.utc)
-
-    # 2.4. Сохраняем само Сообщение (append-only лог)
-    inbound_msg = Message(
-        conversation_id=conversation.id,
-        direction="inbound",
-        content=text,
-        platform_message_id=str(update.message.message_id),
-    )
-    db.add(inbound_msg)
-
-    # Коммит произойдёт автоматически благодаря нашему Dependency get_db_session
-
-    # ============================================
-    # 3. ОТВЕТ КЛИЕНТУ (Эхо для теста MVP)
-    # ============================================
-    reply_text = (
-        f"Привет, {client.display_name}! 🎨\n"
-        f"Я AI-ассистент студии <b>ТАТТУТУЮ</b>.\n\n"
-        f"Твоё сообщение успешно сохранено в БД и передано на анализ (в следующих шагах).\n"
-        f"Ты написал: <i>{text}</i>"
+    logger.info(
+        "telegram_update_received",
+        update_id=update.update_id,
+        chat_id=update.message.chat.id if update.message else None
     )
 
-    try:
-        await tg_client.send_message(chat_id, reply_text)
-    except Exception as e:
-        logger.exception("failed_to_send_reply", chat_id=chat_id)
+    # ============================================
+    # 2. БИЗНЕС-ЛОГИКА: Делегируем сервису
+    # ============================================
+    service = TelegramMessageService(
+        db=db,
+        platform_repo=platform_repo,
+        client_repo=client_repo,
+        conversation_repo=conversation_repo,
+        message_repo=message_repo,
+        tg_client=tg_client,
+    )
 
-    # Telegram требует обязательного ответа 200 OK, иначе он будет спамить повторными запросами
+    await service.process_update(update, expected_secret)
+
+    # Telegram требует обязательного ответа 200 OK
     return {"status": "ok"}

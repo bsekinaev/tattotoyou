@@ -39,3 +39,7 @@ class TelegramClient:
 
 # Создаём глобальный инстанс
 tg_client = TelegramClient()
+
+def get_telegram_client() -> TelegramClient:
+    """Dependency для FastAPI, возвращает синглтон TelegramClient."""
+    return tg_client
