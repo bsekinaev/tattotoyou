@@ -142,7 +142,7 @@ class GigaChatClient:
         except httpx.HTTPError as e:
             logger.error("gigachat_completion_failed", error=str(e))
             # Fallback на случай ошибки API
-            return "Извините, у меня сейчас технические неполадки. София скоро ответит лично! 🙏"
+            return "Извините, у меня сейчас технические неполадки. Соня скоро ответит лично! 🙏"
 
     async def close(self):
         """Корректное закрытие HTTP-сессии."""

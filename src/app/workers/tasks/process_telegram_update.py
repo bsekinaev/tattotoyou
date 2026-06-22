@@ -1,4 +1,3 @@
-# src/app/workers/tasks/process_telegram_update.py
 import asyncio
 import sys
 
@@ -6,6 +5,7 @@ import redis.asyncio as aioredis
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.platforms.telegram_adapter import TelegramAdapter
 from app.infrastructure.db.repositories import (
     ClientRepository,
     ConversationRepository,
@@ -16,9 +16,7 @@ from app.infrastructure.db.session import async_session_factory
 from app.services.ai.fallback_responder import FallbackResponder
 from app.services.ai.gigachat_client import GigaChatClient
 from app.services.ai.intent_classifier import IntentClassifier
-from app.services.platforms.telegram.client import TelegramClient
-from app.services.platforms.telegram.schemas import TelegramUpdate
-from app.services.platforms.telegram.service import TelegramMessageService
+from app.services.conversation_service import ConversationService
 from app.workers.celery_app import celery_app
 
 logger = get_logger(__name__)
@@ -48,37 +46,39 @@ def process_telegram_update_task(self, update_dict: dict, webhook_secret: str):
 
 
 async def _process_async(update_dict: dict, webhook_secret: str):
-    update = TelegramUpdate(**update_dict)
+    # Создаём адаптер и парсим сообщение
+    telegram_adapter = TelegramAdapter()
+    message = await telegram_adapter.parse_message(update_dict)
 
-    # 🛡️ Создаём СВЕЖИЕ клиенты для текущего Event Loop'а
-    tg_client = TelegramClient()
+    if not message:
+        logger.info("skipping_non_message_update")
+        return
 
-    # 🚀 НОВОЕ: Создаём Redis-клиент для distributed token caching
-    # decode_responses=True — чтобы строки возвращались как str, а не bytes
+    # Создаём Redis-клиент для distributed token caching
     redis_client = aioredis.from_url(
         settings.redis_url,
         decode_responses=True,
         socket_connect_timeout=5,
     )
 
-    # Передаём Redis-клиент в GigaChatClient для кэширования токенов
+    # Создаём AI-клиент с Redis cache
     ai_client = GigaChatClient(redis_client=redis_client)
 
     try:
         async with async_session_factory() as db:
-            service = TelegramMessageService(
+            # ConversationService работает с абстрактным PlatformAdapter
+            service = ConversationService(
                 db=db,
                 platform_repo=PlatformRepository(db),
                 client_repo=ClientRepository(db),
                 conversation_repo=ConversationRepository(db),
                 message_repo=MessageRepository(db),
-                tg_client=tg_client,
+                platform_adapter=telegram_adapter,  # ← Platform Adapter!
                 ai_client=ai_client,
             )
-            await service.process_update(update, webhook_secret)
+            await service.process_message(message)
     finally:
-        # 🛡️ Закрываем ВСЕ клиенты ДО закрытия Event Loop'а
-        await tg_client.close()
+        await telegram_adapter.close()
         await ai_client.close()
         await redis_client.close()
 
@@ -86,21 +86,19 @@ async def _process_async(update_dict: dict, webhook_secret: str):
 async def _send_fallback(update_dict: dict):
     """Отправляет шаблонный ответ, если LLM и БД окончательно упали."""
     try:
-        update = TelegramUpdate(**update_dict)
-        if not update.message or not update.message.text:
+        telegram_adapter = TelegramAdapter()
+        message = await telegram_adapter.parse_message(update_dict)
+
+        if not message or not message.text:
             return
 
-        chat_id = update.message.chat.id
-        text = update.message.text
-
-        intent = IntentClassifier.classify(text)
+        intent = IntentClassifier.classify(message.text)
         fallback_text = FallbackResponder.get_response(intent)
 
-        tg_client = TelegramClient()
         try:
-            await tg_client.send_message(chat_id, fallback_text)
-            logger.info("fallback_message_sent", chat_id=chat_id)
+            await telegram_adapter.send_message(message.chat_id, fallback_text)
+            logger.info("fallback_message_sent", chat_id=message.chat_id)
         finally:
-            await tg_client.close()
+            await telegram_adapter.close()
     except Exception as e:
         logger.exception("fallback_send_failed", error=str(e))

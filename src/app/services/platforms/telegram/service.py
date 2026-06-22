@@ -176,7 +176,7 @@ class TelegramMessageService:
             await self.tg_client.send_message(chat_id, reply_text)
         except Exception as e:
             # Логируем, но не падаем — сообщение уже сохранено в БД
-            # София увидит его в админ-панели и сможет ответить вручную
+            # Соня увидит его в админ-панели и сможет ответить вручную
             logger.exception(
                 "failed_to_send_reply",
                 chat_id=chat_id,

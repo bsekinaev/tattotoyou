@@ -1,13 +1,11 @@
 """
 Главная точка входа в приложение.
-
 Production-ready FastAPI application с:
-- Graceful startup/shutdown
+- Graceful startup/shutdown (lifespan)
 - Redis для кэширования и дедупликации
 - Health checks с реальной проверкой зависимостей
 - Request ID middleware для трейсинга
 """
-
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -19,6 +17,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.api.webhooks.telegram import router as telegram_router
+# 🆕 Knowledge Base Admin API
+from app.api.admin.knowledge import router as admin_knowledge_router
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.infrastructure.db.session import async_engine, close_db, init_db
@@ -36,7 +36,6 @@ redis_client: aioredis.Redis | None = None
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     Управление жизненным циклом приложения.
-
     Гарантирует корректную инициализацию и очистку всех ресурсов.
     """
     global redis_client
@@ -65,7 +64,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             socket_timeout=5,
             retry_on_timeout=True,
         )
-        # Проверяем подключение к Redis
         await redis_client.ping()
         app.state.redis = redis_client
         logger.info("redis_ready")
@@ -86,9 +84,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # ============================================
     logger.info("application_shutting_down")
 
-    # Закрываем ресурсы в обратном порядке инициализации
-    # Каждый try/except гарантирует, что если один ресурс упадет,
-    # остальные все равно закроются
     try:
         await tg_client.close()
         logger.info("telegram_client_closed")
@@ -114,18 +109,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     """
     Factory function для создания FastAPI приложения.
-
-    Почему factory, а не глобальный `app = FastAPI()`?
-    1. Можно создавать разные экземпляры для тестов
-    2. Легче мокать зависимости
-    3. Production-ready паттерн
     """
     settings = get_settings()
 
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
-        # В продакшене документация должна быть отключена (безопасность)
         docs_url="/docs" if settings.debug else None,
         redoc_url="/redoc" if settings.debug else None,
         lifespan=lifespan,
@@ -135,7 +124,6 @@ def create_app() -> FastAPI:
     # MIDDLEWARE
     # ============================================
 
-    # Request ID middleware для трейсинга запросов
     @app.middleware("http")
     async def add_request_id(request: Request, call_next):
         """Добавляет уникальный request_id для каждого запроса."""
@@ -146,14 +134,12 @@ def create_app() -> FastAPI:
         response.headers["X-Request-ID"] = request_id
         return response
 
-    # CORS middleware
-    # В продакшене нужно ограничить origins реальными доменами
     app.add_middleware(
         CORSMiddleware,
         allow_origins=(
             ["http://localhost:3000", "http://localhost:8080"]
             if settings.debug
-            else []  # В проде указать реальные домены
+            else []
         ),
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -185,22 +171,14 @@ def create_app() -> FastAPI:
 
     @app.get("/health", tags=["system"])
     async def health_check():
-        """
-        Health check эндпоинт для мониторинга.
-
-        Используется:
-        - Docker healthcheck
-        - Kubernetes liveness/readiness probes
-        - Load balancer health checks
-        - Uptime monitoring (UptimeRobot, Pingdom)
-        """
+        """Health check эндпоинт для мониторинга."""
         health_status = {
             "status": "ok",
             "version": settings.app_version,
             "checks": {},
         }
 
-        # Проверяем PostgreSQL
+        # PostgreSQL
         try:
             async with async_engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
@@ -209,7 +187,7 @@ def create_app() -> FastAPI:
             health_status["checks"]["database"] = f"error: {str(e)}"
             health_status["status"] = "degraded"
 
-        # Проверяем Redis
+        # Redis
         try:
             if redis_client:
                 await redis_client.ping()
@@ -221,14 +199,12 @@ def create_app() -> FastAPI:
             health_status["checks"]["redis"] = f"error: {str(e)}"
             health_status["status"] = "degraded"
 
-        # Возвращаем 503 если что-то не работает
         status_code = 200 if health_status["status"] == "ok" else 503
-
         return JSONResponse(content=health_status, status_code=status_code)
 
     @app.get("/", tags=["system"])
     async def root():
-        """Корневой эндпоинт с базовой информацией о сервисе."""
+        """Корневой эндпоинт."""
         return {
             "service": settings.app_name,
             "version": settings.app_version,
@@ -240,9 +216,12 @@ def create_app() -> FastAPI:
     # ПОДКЛЮЧЕНИЕ РОУТЕРОВ
     # ============================================
     app.include_router(telegram_router, prefix="/webhook", tags=["webhooks"])
+    app.include_router(
+        admin_knowledge_router,
+        prefix="/admin",
+        tags=["admin"],
+    )
 
     return app
 
-
-# Экземпляр приложения для uvicorn
 app = create_app()
