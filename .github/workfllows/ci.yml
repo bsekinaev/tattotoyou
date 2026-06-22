@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system -e ".[dev]"
+
+      - name: Run Ruff linter
+        run: |
+          ruff check src/ tests/
+          ruff format --check src/ tests/
+
+      - name: Run tests with coverage
+        run: |
+          python -m pytest tests/unit -v --cov=src/app --cov-report=xml --cov-report=term-missing
+        env:
+          PYTHONPATH: src
+          TELEGRAM_BOT_TOKEN: "test_token"
+          TELEGRAM_WEBHOOK_SECRET: "test_secret"
+          TELEGRAM_ADMIN_CHAT_ID: "123456"
+          GIGACHAT_CLIENT_ID: "test_id"
+          GIGACHAT_CLIENT_SECRET: "test_secret"
+          POSTGRES_PASSWORD: "test_password"
+          SECRET_KEY: "test_secret_key_at_least_32_chars_long"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
