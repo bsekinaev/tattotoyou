@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Header, HTTPException, Request
+
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.services.platforms.telegram.schemas import TelegramUpdate
@@ -14,9 +15,9 @@ settings = get_settings()
 
 @router.post("/telegram")
 async def telegram_webhook(
-        request: Request,
-        update: TelegramUpdate,
-        x_telegram_bot_api_secret_token: str | None = Header(None),
+    request: Request,
+    update: TelegramUpdate,
+    x_telegram_bot_api_secret_token: str | None = Header(None),
 ):
     # ==========================================
     # ШАГ 1: Безопасность (HMAC / Secret Token)
@@ -38,7 +39,7 @@ async def telegram_webhook(
         rate_limiter = RateLimiter(
             redis_client=request.app.state.redis,
             max_requests=10,  # 10 сообщений
-            window_seconds=60  # в минуту
+            window_seconds=60,  # в минуту
         )
         is_allowed, remaining = await rate_limiter.is_allowed(f"tg:{chat_id}")
 
@@ -61,10 +62,7 @@ async def telegram_webhook(
     # ==========================================
     # 🚀 ШАГ 4: Отправляем в очередь Celery
     # ==========================================
-    process_telegram_update_task.delay(
-        update.model_dump(by_alias=True),
-        expected_secret
-    )
+    process_telegram_update_task.delay(update.model_dump(by_alias=True), expected_secret)
 
     logger.info("task_sent_to_celery", update_id=update.update_id)
 

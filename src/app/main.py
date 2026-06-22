@@ -7,19 +7,21 @@ Production-ready FastAPI application с:
 - Health checks с реальной проверкой зависимостей
 - Request ID middleware для трейсинга
 """
-from contextlib import asynccontextmanager
-from collections.abc import AsyncIterator
+
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import redis.asyncio as aioredis
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
+from app.api.webhooks.telegram import router as telegram_router
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
-from app.infrastructure.db.session import init_db, close_db, async_engine
-from app.api.webhooks.telegram import router as telegram_router
+from app.infrastructure.db.session import async_engine, close_db, init_db
 from app.services.platforms.telegram.client import tg_client
 
 # Инициализируем логирование ПЕРВЫМ ДЕЛОМ

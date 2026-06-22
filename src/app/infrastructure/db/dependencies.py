@@ -2,16 +2,17 @@
 Dependency Injection для репозиториев.
 FastAPI будет автоматически создавать репозитории с активной сессией БД.
 """
-from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import Depends
 
-from app.infrastructure.db.session import get_db_session
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.infrastructure.db.repositories import (
-    PlatformRepository,
     ClientRepository,
     ConversationRepository,
     MessageRepository,
+    PlatformRepository,
 )
+from app.infrastructure.db.session import get_db_session
 
 
 def get_platform_repo(db: AsyncSession = Depends(get_db_session)) -> PlatformRepository:

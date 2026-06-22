@@ -1,4 +1,5 @@
 from celery import Celery
+
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -10,7 +11,7 @@ celery_app = Celery(
     include=[
         "app.workers.tasks.process_telegram_update",
         "app.workers.tasks.send_admin_notification",
-    ]
+    ],
 )
 
 celery_app.conf.update(

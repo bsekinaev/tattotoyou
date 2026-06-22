@@ -10,23 +10,24 @@
 6. Отправка уведомления Софии через Celery (при эскалации)
 7. Отправка ответа клиенту в Telegram
 """
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.infrastructure.db.repositories import (
-    PlatformRepository,
     ClientRepository,
     ConversationRepository,
     MessageRepository,
+    PlatformRepository,
 )
-from app.services.platforms.telegram.schemas import TelegramUpdate
-from app.services.platforms.telegram.client import TelegramClient
 from app.services.ai.gigachat_client import GigaChatClient
 
 # 🧠 Бизнес-логика (Итерация 1)
 from app.services.ai.intent_classifier import IntentClassifier
-from app.services.escalation.engine import EscalationEngine
 from app.services.ai.prompt_builder import PromptBuilder
+from app.services.escalation.engine import EscalationEngine
+from app.services.platforms.telegram.client import TelegramClient
+from app.services.platforms.telegram.schemas import TelegramUpdate
 
 # 📨 Асинхронные уведомления через Celery
 from app.workers.tasks.send_admin_notification import send_admin_notification_task
@@ -127,8 +128,7 @@ class TelegramMessageService:
                 intent=intent,
             )
             reply_text = (
-                "Отличный вопрос! Передам его Софии — "
-                "она лично ответит в течение 15 минут 💛"
+                "Отличный вопрос! Передам его Софии — она лично ответит в течение 15 минут 💛"
             )
 
             # 📨 Асинхронно уведомляем Софию через Celery

@@ -1,5 +1,7 @@
 """Репозиторий для работы с платформами."""
+
 from sqlalchemy import select
+
 from app.domain.clients.models import Platform
 from app.infrastructure.db.repository import BaseRepository
 
@@ -10,9 +12,7 @@ class PlatformRepository(BaseRepository[Platform]):
 
     async def get_by_name(self, name: str) -> Platform | None:
         """Получить платформу по имени (telegram, vk, instagram)."""
-        result = await self.session.execute(
-            select(self.model).where(self.model.name == name)
-        )
+        result = await self.session.execute(select(self.model).where(self.model.name == name))
         return result.scalar_one_or_none()
 
     async def get_or_create(self, name: str, **kwargs) -> Platform:

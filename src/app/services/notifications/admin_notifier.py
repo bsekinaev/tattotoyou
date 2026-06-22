@@ -13,12 +13,12 @@ class AdminNotifier:
 
     @classmethod
     async def notify_escalation(
-            cls,
-            client_name: str,
-            client_username: str | None,
-            reason: str,
-            last_message: str,
-            chat_id: int,
+        cls,
+        client_name: str,
+        client_username: str | None,
+        reason: str,
+        last_message: str,
+        chat_id: int,
     ) -> None:
         """
         Формирует и отправляет уведомление об эскалации.

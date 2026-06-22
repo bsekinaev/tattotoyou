@@ -1,6 +1,9 @@
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
+
 from app.services.rate_limiter import RateLimiter
+
 
 class TestRateLimiter:
     @pytest.mark.asyncio

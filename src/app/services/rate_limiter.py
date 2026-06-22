@@ -1,5 +1,7 @@
 import time
+
 from redis.asyncio import Redis
+
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -38,9 +40,7 @@ class RateLimiter:
 
         try:
             sha = await self._get_script_sha()
-            current_requests = await self.redis.evalsha(
-                sha, 1, key, self.window_seconds
-            )
+            current_requests = await self.redis.evalsha(sha, 1, key, self.window_seconds)
 
             allowed = current_requests <= self.max_requests
             remaining = max(0, self.max_requests - current_requests)

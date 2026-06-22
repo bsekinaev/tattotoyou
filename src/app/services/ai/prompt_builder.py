@@ -1,6 +1,6 @@
+from app.core.logging import get_logger
 from app.domain.clients.models import Client
 from app.domain.conversations.models import Message
-from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -21,7 +21,7 @@ SYSTEM_PROMPT = """
 - Точная цена — ТОЛЬКО после обсуждения эскиза.
 
 # ПРОТИВОПОКАЗАНИЯ (Эскалация!)
-При упоминании: диабет, беременность, псориаз, экзема, простуда, алкоголь — 
+При упоминании: диабет, беременность, псориаз, экзема, простуда, алкоголь —
 вежливо предупреждай и ЭСКАЛИРУЙ на Софию.
 
 # ПРАВИЛА ОБЩЕНИЯ
@@ -35,16 +35,14 @@ SYSTEM_PROMPT = """
 
 class PromptBuilder:
     @classmethod
-    def build_history(
-            cls,
-            client: Client,
-            messages: list[Message]
-    ) -> list[dict]:
+    def build_history(cls, client: Client, messages: list[Message]) -> list[dict]:
         history = []
 
         system_content = SYSTEM_PROMPT
         if client.display_name and client.display_name != "Гость":
-            system_content += f"\n\n# ТЕКУЩИЙ КЛИЕНТ\nИмя клиента: {client.display_name}. Обращайся по имени."
+            system_content += (
+                f"\n\n# ТЕКУЩИЙ КЛИЕНТ\nИмя клиента: {client.display_name}. Обращайся по имени."
+            )
 
         if client.is_vip:
             system_content += "\n\nВНИМАНИЕ: Это VIP-клиент. Отвечай максимально внимательно."

@@ -1,6 +1,9 @@
 """Репозиторий для работы с диалогами."""
-from datetime import datetime, timedelta, timezone
+
+from datetime import UTC, datetime, timedelta
+
 from sqlalchemy import select
+
 from app.domain.conversations.models import Conversation
 from app.infrastructure.db.repository import BaseRepository
 
@@ -14,13 +17,15 @@ class ConversationRepository(BaseRepository[Conversation]):
         Получить активный диалог клиента.
         Диалог считается активным, если была активность за последние 24 часа.
         """
-        day_ago = datetime.now(timezone.utc) - timedelta(hours=24)
+        day_ago = datetime.now(UTC) - timedelta(hours=24)
         result = await self.session.execute(
-            select(self.model).where(
+            select(self.model)
+            .where(
                 self.model.client_id == client_id,
                 self.model.status == "active",
                 self.model.last_activity_at > day_ago,
-            ).order_by(self.model.last_activity_at.desc())
+            )
+            .order_by(self.model.last_activity_at.desc())
         )
         return result.scalar_one_or_none()
 
@@ -31,15 +36,10 @@ class ConversationRepository(BaseRepository[Conversation]):
         conversation = await self.get_active_by_client(client_id)
         if not conversation:
             conversation = await self.create(
-                client_id=client_id,
-                status="active",
-                last_activity_at=datetime.now(timezone.utc)
+                client_id=client_id, status="active", last_activity_at=datetime.now(UTC)
             )
         return conversation
 
     async def update_activity(self, conversation: Conversation) -> Conversation:
         """Обновить время последней активности."""
-        return await self.update(
-            conversation,
-            last_activity_at=datetime.now(timezone.utc)
-        )
+        return await self.update(conversation, last_activity_at=datetime.now(UTC))

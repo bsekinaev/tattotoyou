@@ -1,10 +1,11 @@
 """
 Настройка асинхронного подключения к PostgreSQL.
 """
+
 from collections.abc import AsyncGenerator
+
 from fastapi import HTTPException
 from sqlalchemy import text
-
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -38,6 +39,7 @@ async_session_factory = async_sessionmaker(
     expire_on_commit=False,
 )
 
+
 # ============================================
 # DEPENDENCY ДЛЯ FASTAPI
 # ============================================
@@ -56,6 +58,7 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
         finally:
             await session.close()
 
+
 # ============================================
 # ФУНКЦИИ ДЛЯ LIFESPAN (startup/shutdown)
 # ============================================
@@ -66,9 +69,9 @@ async def init_db() -> None:
         await conn.execute(text("SELECT 1"))
     logger.info("database_initialized")
 
+
 async def close_db() -> None:
     """Закрытие пула соединений при остановке приложения."""
     logger.info("database_closing")
     await async_engine.dispose()
     logger.info("database_closed")
-

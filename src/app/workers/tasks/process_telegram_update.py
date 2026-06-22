@@ -1,21 +1,25 @@
 # src/app/workers/tasks/process_telegram_update.py
-import sys
 import asyncio
+import sys
+
 import redis.asyncio as aioredis
 
-from app.workers.celery_app import celery_app
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.infrastructure.db.repositories import (
+    ClientRepository,
+    ConversationRepository,
+    MessageRepository,
+    PlatformRepository,
+)
 from app.infrastructure.db.session import async_session_factory
-from app.services.platforms.telegram.schemas import TelegramUpdate
-from app.services.platforms.telegram.service import TelegramMessageService
-from app.services.platforms.telegram.client import TelegramClient
+from app.services.ai.fallback_responder import FallbackResponder
 from app.services.ai.gigachat_client import GigaChatClient
 from app.services.ai.intent_classifier import IntentClassifier
-from app.services.ai.fallback_responder import FallbackResponder
-from app.infrastructure.db.repositories import (
-    PlatformRepository, ClientRepository, ConversationRepository, MessageRepository,
-)
+from app.services.platforms.telegram.client import TelegramClient
+from app.services.platforms.telegram.schemas import TelegramUpdate
+from app.services.platforms.telegram.service import TelegramMessageService
+from app.workers.celery_app import celery_app
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -28,7 +32,7 @@ if sys.platform == "win32":
     bind=True,
     name="process_telegram_update",
     autoretry_for=(Exception,),
-    retry_kwargs={'max_retries': 3, 'countdown': 5},
+    retry_kwargs={"max_retries": 3, "countdown": 5},
     retry_backoff=True,
 )
 def process_telegram_update_task(self, update_dict: dict, webhook_secret: str):

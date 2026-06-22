@@ -3,9 +3,11 @@
 Клиент для работы с API Сбер GigaChat.
 С distributed token caching через Redis.
 """
+
 import base64
 import uuid
 import warnings
+
 import httpx
 from redis.asyncio import Redis
 
@@ -104,15 +106,8 @@ class GigaChatClient:
             # ========================================
             if self._redis:
                 try:
-                    await self._redis.set(
-                        self._TOKEN_KEY,
-                        new_token,
-                        ex=self._TOKEN_TTL
-                    )
-                    logger.info(
-                        "gigachat_token_cached",
-                        ttl_seconds=self._TOKEN_TTL
-                    )
+                    await self._redis.set(self._TOKEN_KEY, new_token, ex=self._TOKEN_TTL)
+                    logger.info("gigachat_token_cached", ttl_seconds=self._TOKEN_TTL)
                 except Exception as e:
                     logger.warning("redis_cache_write_failed", error=str(e))
 
@@ -140,11 +135,7 @@ class GigaChatClient:
         }
 
         try:
-            response = await self._client.post(
-                self.completion_url,
-                headers=headers,
-                json=payload
-            )
+            response = await self._client.post(self.completion_url, headers=headers, json=payload)
             response.raise_for_status()
             result = response.json()
             return result["choices"][0]["message"]["content"]

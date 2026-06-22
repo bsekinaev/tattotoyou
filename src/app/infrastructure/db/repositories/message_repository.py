@@ -1,5 +1,7 @@
 """Репозиторий для работы с сообщениями."""
+
 from sqlalchemy import select
+
 from app.domain.conversations.models import Message
 from app.infrastructure.db.repository import BaseRepository
 
@@ -8,11 +10,7 @@ class MessageRepository(BaseRepository[Message]):
     def __init__(self, session):
         super().__init__(Message, session)
 
-    async def get_by_conversation(
-        self,
-        conversation_id: str,
-        limit: int = 50
-    ) -> list[Message]:
+    async def get_by_conversation(self, conversation_id: str, limit: int = 50) -> list[Message]:
         """Получить последние сообщения диалога."""
         result = await self.session.execute(
             select(self.model)
@@ -28,7 +26,7 @@ class MessageRepository(BaseRepository[Message]):
         direction: str,
         content: str,
         platform_message_id: str | None = None,
-        **kwargs
+        **kwargs,
     ) -> Message:
         """Создать новое сообщение."""
         return await self.create(
@@ -36,7 +34,7 @@ class MessageRepository(BaseRepository[Message]):
             direction=direction,
             content=content,
             platform_message_id=platform_message_id,
-            **kwargs
+            **kwargs,
         )
 
     async def get_history(self, conversation_id: str, limit: int = 10) -> list[Message]:

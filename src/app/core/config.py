@@ -3,7 +3,6 @@
 Bulletproof-версия с явной загрузкой .env через python-dotenv.
 """
 
-import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -56,15 +55,11 @@ class Settings(BaseSettings):
     # ============================================
     # TELEGRAM (обязательные)
     # ============================================
-    telegram_bot_token: SecretStr = Field(
-        description="Токен бота от @BotFather"
-    )
+    telegram_bot_token: SecretStr = Field(description="Токен бота от @BotFather")
     telegram_webhook_secret: SecretStr = Field(
         description="Секрет для верификации webhook'ов Telegram"
     )
-    telegram_admin_chat_id: int = Field(
-        description="Chat ID Софии для уведомлений об эскалациях"
-    )
+    telegram_admin_chat_id: int = Field(description="Chat ID Софии для уведомлений об эскалациях")
 
     # ============================================
     # VK (опционально для MVP)
@@ -84,12 +79,8 @@ class Settings(BaseSettings):
     # ============================================
     # GIGACHAT (обязательные)
     # ============================================
-    gigachat_client_id: SecretStr = Field(
-        description="Client ID из кабинета Сбер GigaChat API"
-    )
-    gigachat_client_secret: SecretStr = Field(
-        description="Client Secret"
-    )
+    gigachat_client_id: SecretStr = Field(description="Client ID из кабинета Сбер GigaChat API")
+    gigachat_client_secret: SecretStr = Field(description="Client Secret")
     gigachat_scope: str = "GIGACHAT_API_PERS"
     gigachat_model: str = "GigaChat-Pro"
 
@@ -100,9 +91,7 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
     postgres_db: str = "tattoo_assistant"
     postgres_user: str = "tattoo_user"
-    postgres_password: SecretStr = Field(
-        description="Пароль от PostgreSQL"
-    )
+    postgres_password: SecretStr = Field(description="Пароль от PostgreSQL")
 
     # ============================================
     # REDIS
@@ -115,9 +104,7 @@ class Settings(BaseSettings):
     # ============================================
     # SECURITY
     # ============================================
-    secret_key: SecretStr = Field(
-        description="Секретный ключ для HMAC"
-    )
+    secret_key: SecretStr = Field(description="Секретный ключ для HMAC")
 
     # ============================================
     # OBSERVABILITY

@@ -1,8 +1,8 @@
-import pytest
 from unittest.mock import MagicMock
-from app.services.ai.prompt_builder import PromptBuilder
+
 from app.domain.clients.models import Client
 from app.domain.conversations.models import Message
+from app.services.ai.prompt_builder import PromptBuilder
 
 
 class TestPromptBuilder:

@@ -1,15 +1,17 @@
 import asyncio
-from app.workers.celery_app import celery_app
+
 from app.core.logging import get_logger
 from app.services.notifications.admin_notifier import AdminNotifier
+from app.workers.celery_app import celery_app
 
 logger = get_logger(__name__)
+
 
 @celery_app.task(
     bind=True,
     name="send_admin_notification",
     autoretry_for=(Exception,),
-    retry_kwargs={'max_retries': 3, 'countdown': 5},
+    retry_kwargs={"max_retries": 3, "countdown": 5},
     retry_backoff=True,
 )
 def send_admin_notification_task(
