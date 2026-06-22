@@ -8,7 +8,7 @@ from app.services.platforms.telegram.service import TelegramMessageService
 from app.services.platforms.telegram.client import TelegramClient
 from app.services.ai.gigachat_client import GigaChatClient
 from app.services.ai.intent_classifier import IntentClassifier
-from app.services.ai.fallback_responder import FallbackResponder  # 🆕
+from app.services.ai.fallback_responder import FallbackResponder
 from app.infrastructure.db.repositories import (
     PlatformRepository, ClientRepository, ConversationRepository, MessageRepository,
 )
@@ -32,29 +32,40 @@ def process_telegram_update_task(self, update_dict: dict, webhook_secret: str):
         asyncio.run(_process_async(update_dict, webhook_secret))
         logger.info("celery_task_completed", update_id=update_dict.get("update_id"))
     except Exception as exc:
-        # КРИТИЧНО: Проверяем, не исчерпаны ли ретраи
+        # 🚨 Проверяем, не исчерпаны ли ретраи
         if self.request.retries >= self.max_retries:
             logger.error("task_permanently_failed_sending_fallback", error=str(exc))
-            # Запускаем синхронный fallback, чтобы не бросать клиента
+            # Запускаем fallback, чтобы не бросать клиента
             asyncio.run(_send_fallback(update_dict))
         raise exc
 
 
 async def _process_async(update_dict: dict, webhook_secret: str):
-    # ... (твой текущий код без изменений) ...
     update = TelegramUpdate(**update_dict)
+
+    # 🛡️ Создаем СВЕЖИЕ клиенты для текущего Event Loop'а
     tg_client = TelegramClient()
     ai_client = GigaChatClient()
+
     try:
         async with async_session_factory() as db:
-            service = TelegramMessageService(...)
+            # 🚀 ПРАВИЛЬНАЯ ИНИЦИАЛИЗАЦИЯ СО ВСЕМИ АРГУМЕНТАМИ
+            service = TelegramMessageService(
+                db=db,
+                platform_repo=PlatformRepository(db),
+                client_repo=ClientRepository(db),
+                conversation_repo=ConversationRepository(db),
+                message_repo=MessageRepository(db),
+                tg_client=tg_client,
+                ai_client=ai_client,
+            )
             await service.process_update(update, webhook_secret)
     finally:
+        # 🛡️ Закрываем httpx клиенты ДО закрытия Event Loop'а
         await tg_client.close()
         await ai_client.close()
 
 
-# ФУНКЦИЯ ДЛЯ FALLBACK
 async def _send_fallback(update_dict: dict):
     """Отправляет шаблонный ответ, если LLM и БД окончательно упали."""
     try:

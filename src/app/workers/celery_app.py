@@ -7,7 +7,10 @@ celery_app = Celery(
     "tattoo_assistant",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.workers.tasks.process_telegram_update"]
+    include=[
+        "app.workers.tasks.process_telegram_update",
+        "app.workers.tasks.send_admin_notification",
+    ]
 )
 
 celery_app.conf.update(
