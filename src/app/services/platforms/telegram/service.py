@@ -7,26 +7,18 @@ from app.services.platforms.telegram.schemas import TelegramUpdate
 from app.services.platforms.telegram.client import TelegramClient
 from app.services.ai.gigachat_client import GigaChatClient
 
-logger = get_logger(__name__)
+# 🧠 Импортируем наши новые сервисы
+from app.services.ai.intent_classifier import IntentClassifier
+from app.services.escalation.engine import EscalationEngine
+from app.services.ai.prompt_builder import PromptBuilder
 
-# Системный промт для Лики (ассистента ТАТТУТУЮ)
-SYSTEM_PROMPT = (
-    "Ты — Лика, администратор тату-студии ТАТТУТУЮ (мастер София). "
-    "Отвечай дружелюбно, кратко (2-3 предложения). Используй эмодзи 🎨✨. "
-    "Если спрашивают цену, говори, что точный расчет только после эскиза, но минималка от 3000р. "
-    "Твоя цель — записать клиента на консультацию."
-)
+logger = get_logger(__name__)
 
 class TelegramMessageService:
     def __init__(
-        self,
-        db: AsyncSession,
-        platform_repo: PlatformRepository,
-        client_repo: ClientRepository,
-        conversation_repo: ConversationRepository,
-        message_repo: MessageRepository,
-        tg_client: TelegramClient,
-        ai_client: GigaChatClient,
+        self, db: AsyncSession, platform_repo: PlatformRepository,
+        client_repo: ClientRepository, conversation_repo: ConversationRepository,
+        message_repo: MessageRepository, tg_client: TelegramClient, ai_client: GigaChatClient,
     ):
         self.db = db
         self.platform_repo = platform_repo
@@ -57,22 +49,27 @@ class TelegramMessageService:
             conversation_id=conversation.id, direction="inbound",
             content=text, platform_message_id=str(update.message.message_id),
         )
-        await self.db.commit() # Фиксируем inbound сообщение
+        await self.db.commit()
 
-        # 2. Формируем историю для AI
-        history_msgs = await self.message_repo.get_history(conversation.id, limit=10)
-        ai_history = [{"role": "system", "content": SYSTEM_PROMPT}]
-        for msg in history_msgs:
-            role = "user" if msg.direction == "inbound" else "assistant"
-            ai_history.append({"role": role, "content": msg.content})
+        # 🧠 Анализ намерения и эскалация
+        intent = IntentClassifier.classify(text)
+        should_escalate, reason = EscalationEngine.should_escalate(intent, text)
 
-        # 3. Генерируем ответ через GigaChat
-        logger.info("calling_gigachat", chat_id=chat_id)
-        reply_text = await self.ai_client.generate_response(ai_history)
+        if should_escalate:
+            logger.warning("escalation_triggered", reason=reason, chat_id=chat_id)
+            reply_text = "Отличный вопрос! Передам его Софии — она лично ответит в течение 15 минут 💛"
+        else:
+            # 🤖 Стандартный_flow — собираем умный контекст через PromptBuilder
+            history_msgs = await self.message_repo.get_history(conversation.id, limit=10)
+            ai_history = PromptBuilder.build_history(client, history_msgs)
 
-        # 4. Сохраняем outbound сообщение
+            logger.info("calling_gigachat", chat_id=chat_id, intent=intent)
+            reply_text = await self.ai_client.generate_response(ai_history)
+
+        # 4. Сохраняем outbound
         await self.message_repo.create_message(
             conversation_id=conversation.id, direction="outbound", content=reply_text,
+            is_escalation_trigger=should_escalate,
         )
         await self.db.commit()
 
