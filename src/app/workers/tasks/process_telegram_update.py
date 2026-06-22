@@ -1,6 +1,10 @@
+# src/app/workers/tasks/process_telegram_update.py
 import sys
 import asyncio
+import redis.asyncio as aioredis
+
 from app.workers.celery_app import celery_app
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.infrastructure.db.session import async_session_factory
 from app.services.platforms.telegram.schemas import TelegramUpdate
@@ -14,6 +18,7 @@ from app.infrastructure.db.repositories import (
 )
 
 logger = get_logger(__name__)
+settings = get_settings()
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -32,10 +37,8 @@ def process_telegram_update_task(self, update_dict: dict, webhook_secret: str):
         asyncio.run(_process_async(update_dict, webhook_secret))
         logger.info("celery_task_completed", update_id=update_dict.get("update_id"))
     except Exception as exc:
-        # 🚨 Проверяем, не исчерпаны ли ретраи
         if self.request.retries >= self.max_retries:
             logger.error("task_permanently_failed_sending_fallback", error=str(exc))
-            # Запускаем fallback, чтобы не бросать клиента
             asyncio.run(_send_fallback(update_dict))
         raise exc
 
@@ -43,13 +46,22 @@ def process_telegram_update_task(self, update_dict: dict, webhook_secret: str):
 async def _process_async(update_dict: dict, webhook_secret: str):
     update = TelegramUpdate(**update_dict)
 
-    # 🛡️ Создаем СВЕЖИЕ клиенты для текущего Event Loop'а
+    # 🛡️ Создаём СВЕЖИЕ клиенты для текущего Event Loop'а
     tg_client = TelegramClient()
-    ai_client = GigaChatClient()
+
+    # 🚀 НОВОЕ: Создаём Redis-клиент для distributed token caching
+    # decode_responses=True — чтобы строки возвращались как str, а не bytes
+    redis_client = aioredis.from_url(
+        settings.redis_url,
+        decode_responses=True,
+        socket_connect_timeout=5,
+    )
+
+    # Передаём Redis-клиент в GigaChatClient для кэширования токенов
+    ai_client = GigaChatClient(redis_client=redis_client)
 
     try:
         async with async_session_factory() as db:
-            # 🚀 ПРАВИЛЬНАЯ ИНИЦИАЛИЗАЦИЯ СО ВСЕМИ АРГУМЕНТАМИ
             service = TelegramMessageService(
                 db=db,
                 platform_repo=PlatformRepository(db),
@@ -61,9 +73,10 @@ async def _process_async(update_dict: dict, webhook_secret: str):
             )
             await service.process_update(update, webhook_secret)
     finally:
-        # 🛡️ Закрываем httpx клиенты ДО закрытия Event Loop'а
+        # 🛡️ Закрываем ВСЕ клиенты ДО закрытия Event Loop'а
         await tg_client.close()
         await ai_client.close()
+        await redis_client.close()
 
 
 async def _send_fallback(update_dict: dict):
