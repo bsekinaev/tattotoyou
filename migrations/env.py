@@ -1,37 +1,32 @@
-import asyncio
-import sys
+# migrations/env.py
 from logging.config import fileConfig
-from logging.config import fileConfig
+
+from sqlalchemy import engine_from_config
 from sqlalchemy import pool
-from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
+
 from alembic import context
+
 from app.core.config import get_settings
-import app.domain
+import app.domain  # noqa: F401 (Импортируем, чтобы модели зарегистрировались в Base.metadata)
 from app.infrastructure.db.base import Base
-# ============================================
-# 🛠️ ФИКС ДЛЯ WINDOWS (Alembic + psycopg)
-# ============================================
-# Принудительно переключаемся на SelectorEventLoop,
-# так как psycopg (как и asyncpg) не умеет работать с ProactorEventLoop.
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-# ============================================
 
-from sqlalchemy import pool
-
+# this is the Alembic Config object
 config = context.config
 
-
+# Загружаем настройки и подставляем DSN
 settings = get_settings()
 config.set_main_option("sqlalchemy.url", settings.postgres_dsn_sync)
 
+# Interpret the config file for Python logging.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+# add your model's MetaData object here for 'autogenerate' support
 target_metadata = Base.metadata
 
+
 def run_migrations_offline() -> None:
+    """Run migrations in 'offline' mode."""
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
@@ -39,26 +34,27 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
+
     with context.begin_transaction():
         context.run_migrations()
 
-def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
-    with context.begin_transaction():
-        context.run_migrations()
 
-async def run_async_migrations() -> None:
-    connectable = async_engine_from_config(
+def run_migrations_online() -> None:
+    """Run migrations in 'online' mode."""
+    connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-    await connectable.dispose()
 
-def run_migrations_online() -> None:
-    asyncio.run(run_async_migrations())
+    with connectable.connect() as connection:
+        context.configure(
+            connection=connection, target_metadata=target_metadata
+        )
+
+        with context.begin_transaction():
+            context.run_migrations()
+
 
 if context.is_offline_mode():
     run_migrations_offline()

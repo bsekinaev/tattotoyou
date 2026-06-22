@@ -55,3 +55,33 @@ class PromptBuilder:
             history.append({"role": role, "content": msg.content})
 
         return history
+
+    @classmethod
+    def build_with_faq(
+        cls,
+        client, # app.domain.clients.models.Client
+        messages: list, # list[Message]
+        faq_items: list[dict],
+    ) -> list[dict]:
+        """
+        RAG-паттерн: собирает промт + инжектит релевантные FAQ как контекст.
+        """
+        history = cls.build_history(client, messages)
+
+        if faq_items:
+            faq_context = "\n\n# 📚 БАЗА ЗНАНИЙ СТУДИИ (Используй ТОЛЬКО эти факты)\n"
+            for faq in faq_items:
+                faq_context += f"\nВопрос клиента: {faq['question']}\nТвой эталонный ответ: {faq['answer']}\n"
+
+            faq_context += (
+                "\n# ИНСТРУКЦИЯ ПО ИСПОЛЬЗОВАНИЮ БЗ\n"
+                "- Отвечай СТРОГО на основе фактов из базы знаний выше.\n"
+                "- Если вопрос клиента не покрыт БЗ — честно скажи: 'Уточню этот момент у Софии' и предложи эскалацию.\n"
+                "- НЕ выдумывай цены, адреса или правила, которых нет в БЗ.\n"
+                "- Сохраняй дружелюбный тон Лики."
+            )
+
+            # Добавляем FAQ в конец system prompt
+            history[0]["content"] += faq_context
+
+        return history
