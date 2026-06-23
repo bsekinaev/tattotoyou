@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     gigachat_client_secret: SecretStr = Field(description="Client Secret")
     gigachat_scope: str = "GIGACHAT_API_PERS"
     gigachat_model: str = "GigaChat-Pro"
+    gigachat_ca_bundle: Path | None = None
 
     # ============================================
     # DATABASE
@@ -156,6 +157,7 @@ class Settings(BaseSettings):
         "ig_access_token",
         "ig_app_secret",
         "redis_password",
+        "gigachat_ca_bundle",
         "sentry_dsn",
         mode="before",
     )

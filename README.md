@@ -63,6 +63,9 @@ python -m pytest tests/unit -v --cov=src/app
 
    `ADMIN_API_KEY`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, Telegram и GigaChat credentials обязательны. Admin API принимает ключ только через заголовок `X-Admin-Key`.
 
+   GigaChat использует обязательную TLS-верификацию. Установите корневой сертификат НУЦ Минцифры в системное хранилище или укажите путь к PEM-файлу через `GIGACHAT_CA_BUNDLE`. Отключение проверки сертификатов в коде не поддерживается.
+   Для Docker путь должен существовать внутри контейнера: смонтируйте PEM-файл read-only и задайте, например, `GIGACHAT_CA_BUNDLE=/run/secrets/gigachat-ca.pem`. Сам сертификат и приватные секреты не коммитятся в репозиторий.
+
 2. Соберите и запустите полный стек с локальными портами:
 
    ```bash
