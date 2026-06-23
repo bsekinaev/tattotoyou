@@ -23,9 +23,14 @@ dependencies = [
     "numpy>=1.26.0",
     "python-dotenv>=1.0.1",
     "python-multipart>=0.0.9",
+    "pgvector>=0.3.0",
 ]
 
 [project.optional-dependencies]
+rag = [
+    "sentence-transformers>=3.0.0",
+]
+
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.5",

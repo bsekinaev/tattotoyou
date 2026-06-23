@@ -2,6 +2,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.security import secrets_match
 from app.services.platforms.telegram.schemas import TelegramUpdate
 from app.services.rate_limiter import RateLimiter
 
@@ -20,10 +21,10 @@ async def telegram_webhook(
     x_telegram_bot_api_secret_token: str | None = Header(None),
 ):
     # ==========================================
-    # ШАГ 1: Безопасность (HMAC / Secret Token)
+    # ШАГ 1: Безопасность (Telegram Secret Token)
     # ==========================================
     expected_secret = settings.telegram_webhook_secret.get_secret_value()
-    if x_telegram_bot_api_secret_token != expected_secret:
+    if not secrets_match(x_telegram_bot_api_secret_token, expected_secret):
         raise HTTPException(status_code=403, detail="Invalid secret token")
 
     # Безопасно извлекаем chat_id для rate limiting
@@ -62,7 +63,7 @@ async def telegram_webhook(
     # ==========================================
     # 🚀 ШАГ 4: Отправляем в очередь Celery
     # ==========================================
-    process_telegram_update_task.delay(update.model_dump(by_alias=True), expected_secret)
+    process_telegram_update_task.delay(update.model_dump(by_alias=True))
 
     logger.info("task_sent_to_celery", update_id=update.update_id)
 

@@ -1,0 +1,14 @@
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${POSTGRES_EXPOSED_PORT:-5433}:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:${REDIS_EXPOSED_PORT:-6380}:6379"
+
+  api:
+    ports:
+      - "127.0.0.1:${API_EXPOSED_PORT:-8000}:8000"
+    environment:
+      DEBUG: "true"

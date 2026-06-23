@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.admin.auth import require_admin
 from app.api.admin.schemas import (
     KnowledgeBaseCreate,
     KnowledgeBaseListResponse,
@@ -25,7 +26,7 @@ from app.infrastructure.db.repositories import KnowledgeBaseRepository
 from app.infrastructure.db.session import get_db_session
 
 logger = get_logger(__name__)
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin)])
 
 
 @router.get("/knowledge", response_model=KnowledgeBaseListResponse)

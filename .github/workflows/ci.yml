@@ -52,6 +52,7 @@ jobs:
           GIGACHAT_CLIENT_SECRET: "test_secret"
           POSTGRES_PASSWORD: "test_password"
           SECRET_KEY: "test_secret_key_at_least_32_chars_long"
+          ADMIN_API_KEY: "test_admin_key_at_least_32_chars_long"
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

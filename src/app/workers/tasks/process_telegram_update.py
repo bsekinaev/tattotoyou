@@ -33,10 +33,10 @@ if sys.platform == "win32":
     retry_kwargs={"max_retries": 3, "countdown": 5},
     retry_backoff=True,
 )
-def process_telegram_update_task(self, update_dict: dict, webhook_secret: str):
+def process_telegram_update_task(self, update_dict: dict):
     logger.info("celery_task_started", update_id=update_dict.get("update_id"))
     try:
-        asyncio.run(_process_async(update_dict, webhook_secret))
+        asyncio.run(_process_async(update_dict))
         logger.info("celery_task_completed", update_id=update_dict.get("update_id"))
     except Exception as exc:
         if self.request.retries >= self.max_retries:
@@ -45,7 +45,7 @@ def process_telegram_update_task(self, update_dict: dict, webhook_secret: str):
         raise exc
 
 
-async def _process_async(update_dict: dict, webhook_secret: str):
+async def _process_async(update_dict: dict):
     # Создаём адаптер и парсим сообщение
     telegram_adapter = TelegramAdapter()
     message = await telegram_adapter.parse_message(update_dict)

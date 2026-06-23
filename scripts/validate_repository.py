@@ -29,10 +29,15 @@ class Check:
     required_executable: str | None = None
 
 
-def _uv_command(*args: str) -> tuple[str, ...]:
-    """Build a command that runs a project tool through uv when available."""
-    if shutil.which("uv"):
-        return ("uv", "run", "--extra", "dev", *args)
+def _project_tool_command(*args: str) -> tuple[str, ...]:
+    """Build a deterministic command for an installed project tool.
+
+    A frozen uv environment is used only when ``uv.lock`` exists. Without a
+    lock file, ``uv run`` may resolve dependencies or download Python during a
+    validation run, turning a lint check into a network-dependent operation.
+    """
+    if (PROJECT_ROOT / "uv.lock").exists() and shutil.which("uv"):
+        return ("uv", "run", "--frozen", "--extra", "dev", *args)
     return args
 
 
@@ -45,32 +50,46 @@ def build_checks() -> tuple[Check, ...]:
         ),
         Check(
             name="Ruff lint",
-            command=_uv_command("ruff", "check", *SOURCE_PATHS),
-            required_executable="uv" if shutil.which("uv") else "ruff",
+            command=_project_tool_command("ruff", "check", *SOURCE_PATHS),
+            required_executable="uv" if (PROJECT_ROOT / "uv.lock").exists() else "ruff",
         ),
         Check(
             name="Ruff formatting",
-            command=_uv_command("ruff", "format", "--check", *SOURCE_PATHS),
-            required_executable="uv" if shutil.which("uv") else "ruff",
+            command=_project_tool_command("ruff", "format", "--check", *SOURCE_PATHS),
+            required_executable="uv" if (PROJECT_ROOT / "uv.lock").exists() else "ruff",
         ),
         Check(
             name="Mypy",
-            command=_uv_command("mypy", "src"),
-            required_executable="uv" if shutil.which("uv") else "mypy",
+            command=_project_tool_command("mypy", "src"),
+            required_executable="uv" if (PROJECT_ROOT / "uv.lock").exists() else "mypy",
         ),
         Check(
             name="Unit tests",
-            command=_uv_command("pytest", "tests/unit", "-q"),
-            required_executable="uv" if shutil.which("uv") else "pytest",
+            command=_project_tool_command("pytest", "tests/unit", "-q"),
+            required_executable="uv" if (PROJECT_ROOT / "uv.lock").exists() else "pytest",
         ),
         Check(
             name="Alembic revision graph",
-            command=_uv_command("alembic", "heads"),
-            required_executable="uv" if shutil.which("uv") else "alembic",
+            command=_project_tool_command("alembic", "heads"),
+            required_executable="uv" if (PROJECT_ROOT / "uv.lock").exists() else "alembic",
         ),
         Check(
-            name="Docker Compose configuration",
-            command=("docker", "compose", "config", "--quiet"),
+            name="Docker Compose production configuration",
+            command=("docker", "compose", "-f", "docker-compose.yml", "config", "--quiet"),
+            required_executable="docker",
+        ),
+        Check(
+            name="Docker Compose development configuration",
+            command=(
+                "docker",
+                "compose",
+                "-f",
+                "docker-compose.yml",
+                "-f",
+                "docker-compose.dev.yml",
+                "config",
+                "--quiet",
+            ),
             required_executable="docker",
         ),
     )
@@ -123,7 +142,9 @@ def main() -> int:
     env.setdefault("GIGACHAT_CLIENT_ID", "validation_client")
     env.setdefault("GIGACHAT_CLIENT_SECRET", "validation_secret")
     env.setdefault("POSTGRES_PASSWORD", "validation_password")
+    env.setdefault("REDIS_PASSWORD", "validation_redis_password")
     env.setdefault("SECRET_KEY", "validation_secret_key_at_least_32_chars_long")
+    env.setdefault("ADMIN_API_KEY", "validation_admin_key_at_least_32_chars_long")
 
     failed = 0
     skipped = 0
