@@ -8,20 +8,21 @@ Endpoints:
 - PATCH  /admin/knowledge/{id}     - обновить FAQ
 - DELETE /admin/knowledge/{id}     - мягкое удаление (деактивация)
 """
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.admin.schemas import (
+    KnowledgeBaseCreate,
+    KnowledgeBaseListResponse,
+    KnowledgeBaseResponse,
+    KnowledgeBaseUpdate,
+)
 from app.core.logging import get_logger
 from app.domain.knowledge.models import KnowledgeBase
 from app.infrastructure.db.repositories import KnowledgeBaseRepository
 from app.infrastructure.db.session import get_db_session
-from app.api.admin.schemas import (
-    KnowledgeBaseCreate,
-    KnowledgeBaseUpdate,
-    KnowledgeBaseResponse,
-    KnowledgeBaseListResponse,
-)
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -29,9 +30,9 @@ router = APIRouter()
 
 @router.get("/knowledge", response_model=KnowledgeBaseListResponse)
 async def list_knowledge(
-        category: str | None = Query(None, description="Фильтр по категории"),
-        limit: int = Query(50, ge=1, le=100),
-        db: AsyncSession = Depends(get_db_session),
+    category: str | None = Query(None, description="Фильтр по категории"),
+    limit: int = Query(50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """
     Получить список всех активных FAQ-записей.
@@ -48,8 +49,8 @@ async def list_knowledge(
     items = await repo.get_active_by_category(category=category, limit=limit)
 
     # Подсчёт общего количества
-    count_query = select(func.count()).select_from(KnowledgeBase).where(
-        KnowledgeBase.is_active.is_(True)
+    count_query = (
+        select(func.count()).select_from(KnowledgeBase).where(KnowledgeBase.is_active.is_(True))
     )
     if category:
         count_query = count_query.where(KnowledgeBase.category == category)
@@ -64,8 +65,8 @@ async def list_knowledge(
 
 @router.post("/knowledge", response_model=KnowledgeBaseResponse, status_code=201)
 async def create_knowledge(
-        data: KnowledgeBaseCreate,
-        db: AsyncSession = Depends(get_db_session),
+    data: KnowledgeBaseCreate,
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Создать новую FAQ-запись."""
     repo = KnowledgeBaseRepository(db)
@@ -85,8 +86,8 @@ async def create_knowledge(
 
 @router.get("/knowledge/{kb_id}", response_model=KnowledgeBaseResponse)
 async def get_knowledge(
-        kb_id: int,
-        db: AsyncSession = Depends(get_db_session),
+    kb_id: int,
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Получить FAQ-запись по ID."""
     repo = KnowledgeBaseRepository(db)
@@ -100,9 +101,9 @@ async def get_knowledge(
 
 @router.patch("/knowledge/{kb_id}", response_model=KnowledgeBaseResponse)
 async def update_knowledge(
-        kb_id: int,
-        data: KnowledgeBaseUpdate,
-        db: AsyncSession = Depends(get_db_session),
+    kb_id: int,
+    data: KnowledgeBaseUpdate,
+    db: AsyncSession = Depends(get_db_session),
 ):
     """
     Обновить FAQ-запись (частичное обновление).
@@ -129,8 +130,8 @@ async def update_knowledge(
 
 @router.delete("/knowledge/{kb_id}", status_code=204)
 async def delete_knowledge(
-        kb_id: int,
-        db: AsyncSession = Depends(get_db_session),
+    kb_id: int,
+    db: AsyncSession = Depends(get_db_session),
 ):
     """
     Мягкое удаление FAQ-записи (деактивация).

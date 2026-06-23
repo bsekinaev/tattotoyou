@@ -5,15 +5,16 @@
 Позволяет бизнес-логике (ConversationService) работать с любой платформой,
 не зная её деталей реализации.
 """
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
 
 
 @dataclass
 class PlatformUser:
     """Универсальное представление пользователя (platform-agnostic)."""
+
     external_id: str  # ID в соцсети (telegram user_id, vk user_id, etc)
     display_name: str | None = None
     username: str | None = None
@@ -23,6 +24,7 @@ class PlatformUser:
 @dataclass
 class PlatformMessage:
     """Универсальное представление сообщения (platform-agnostic)."""
+
     platform: str  # "telegram", "vk", "instagram"
     message_id: str  # ID сообщения в платформе
     chat_id: str  # ID чата/беседы в платформе
@@ -94,4 +96,4 @@ class PlatformAdapter(ABC):
 
     async def close(self) -> None:
         """Закрыть HTTP-клиент (если есть)."""
-        pass
+        return None

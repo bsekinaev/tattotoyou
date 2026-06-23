@@ -1,10 +1,12 @@
 """
 Проверка подключения к PostgreSQL и создание тестовых данных.
 """
-import sys
+
 import asyncio
-import app.domain
-from app.domain.clients.models import Platform, Client
+import sys
+
+from app.domain.clients.models import Client, Platform
+
 # ============================================
 # 🛠️ ФИКС ДЛЯ WINDOWS
 # ============================================
@@ -18,14 +20,12 @@ if sys.platform == "win32":
 from sqlalchemy import select
 
 #  Добавляем импорт и вызов настройки логирования
-from app.core.logging import setup_logging
-setup_logging()
-
 from app.core.config import get_settings
-from app.infrastructure.db.session import async_session_factory, async_engine
+from app.core.logging import setup_logging
 from app.infrastructure.db.base import Base
-from app.domain.clients.models import Platform, Client
+from app.infrastructure.db.session import async_engine, async_session_factory
 
+setup_logging()
 
 
 async def test_db_connection():
@@ -66,9 +66,7 @@ async def test_db_connection():
 
         # 4. Проверяем SELECT
         print("\n🔎 Делаем SELECT запрос...")
-        result = await session.execute(
-            select(Client).where(Client.platform_id == telegram.id)
-        )
+        result = await session.execute(select(Client).where(Client.platform_id == telegram.id))
         clients = result.scalars().all()
         print(f"✅ Найдено клиентов: {len(clients)}")
         for c in clients:

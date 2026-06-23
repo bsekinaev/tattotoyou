@@ -1,14 +1,17 @@
 """Pydantic-схемы для Admin API."""
-from pydantic import BaseModel, Field
+
 from datetime import datetime
 
+from pydantic import BaseModel, Field
 
 # ============================================
 # KNOWLEDGE BASE SCHEMAS
 # ============================================
 
+
 class KnowledgeBaseCreate(BaseModel):
     """Схема создания FAQ-записи."""
+
     category: str = Field(..., min_length=1, max_length=50)
     question: str = Field(..., min_length=5, max_length=1000)
     answer: str = Field(..., min_length=10, max_length=5000)
@@ -18,6 +21,7 @@ class KnowledgeBaseCreate(BaseModel):
 
 class KnowledgeBaseUpdate(BaseModel):
     """Схема обновления FAQ-записи (все поля опциональны)."""
+
     category: str | None = Field(None, min_length=1, max_length=50)
     question: str | None = Field(None, min_length=5, max_length=1000)
     answer: str | None = Field(None, min_length=10, max_length=5000)
@@ -28,6 +32,7 @@ class KnowledgeBaseUpdate(BaseModel):
 
 class KnowledgeBaseResponse(BaseModel):
     """Схема ответа с полной информацией о FAQ."""
+
     id: int
     category: str
     question: str
@@ -44,5 +49,6 @@ class KnowledgeBaseResponse(BaseModel):
 
 class KnowledgeBaseListResponse(BaseModel):
     """Схема ответа со списком FAQ."""
+
     items: list[KnowledgeBaseResponse]
     total: int

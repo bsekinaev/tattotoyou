@@ -1,9 +1,11 @@
-""""
+""" "
 Telegram-specific адаптер.
 Реализует PlatformAdapter для Telegram Bot API.
 """
+
+from datetime import UTC, datetime
+
 import httpx
-from datetime import datetime, timezone
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -35,7 +37,7 @@ class TelegramAdapter(PlatformAdapter):
                     "chat_id": int(chat_id),  # Telegram требует int
                     "text": text,
                     "parse_mode": "HTML",
-                }
+                },
             )
             response.raise_for_status()
             result = response.json()
@@ -77,7 +79,7 @@ class TelegramAdapter(PlatformAdapter):
         # Парсим timestamp
         timestamp = None
         if "date" in message:
-            timestamp = datetime.fromtimestamp(message["date"], tz=timezone.utc)
+            timestamp = datetime.fromtimestamp(message["date"], tz=UTC)
 
         return PlatformMessage(
             platform="telegram",

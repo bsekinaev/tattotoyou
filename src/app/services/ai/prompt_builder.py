@@ -59,8 +59,8 @@ class PromptBuilder:
     @classmethod
     def build_with_faq(
         cls,
-        client, # app.domain.clients.models.Client
-        messages: list, # list[Message]
+        client,  # app.domain.clients.models.Client
+        messages: list,  # list[Message]
         faq_items: list[dict],
     ) -> list[dict]:
         """
@@ -71,7 +71,9 @@ class PromptBuilder:
         if faq_items:
             faq_context = "\n\n# 📚 БАЗА ЗНАНИЙ СТУДИИ (Используй ТОЛЬКО эти факты)\n"
             for faq in faq_items:
-                faq_context += f"\nВопрос клиента: {faq['question']}\nТвой эталонный ответ: {faq['answer']}\n"
+                faq_context += (
+                    f"\nВопрос клиента: {faq['question']}\nТвой эталонный ответ: {faq['answer']}\n"
+                )
 
             faq_context += (
                 "\n# ИНСТРУКЦИЯ ПО ИСПОЛЬЗОВАНИЮ БЗ\n"

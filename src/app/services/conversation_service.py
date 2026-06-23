@@ -4,15 +4,16 @@ Conversation Service — ядро бизнес-логики.
 Работает с PlatformMessage и PlatformAdapter, не зная деталей конкретной платформы.
 Это позволяет использовать одну и ту же логику для Telegram, VK, Instagram.
 """
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.core.platforms.base import PlatformAdapter, PlatformMessage
 from app.infrastructure.db.repositories import (
-    PlatformRepository,
     ClientRepository,
     ConversationRepository,
     MessageRepository,
+    PlatformRepository,
 )
 from app.services.ai.gigachat_client import GigaChatClient
 from app.services.ai.intent_classifier import IntentClassifier
@@ -32,14 +33,14 @@ class ConversationService:
     """
 
     def __init__(
-            self,
-            db: AsyncSession,
-            platform_repo: PlatformRepository,
-            client_repo: ClientRepository,
-            conversation_repo: ConversationRepository,
-            message_repo: MessageRepository,
-            platform_adapter: PlatformAdapter,
-            ai_client: GigaChatClient,
+        self,
+        db: AsyncSession,
+        platform_repo: PlatformRepository,
+        client_repo: ClientRepository,
+        conversation_repo: ConversationRepository,
+        message_repo: MessageRepository,
+        platform_adapter: PlatformAdapter,
+        ai_client: GigaChatClient,
     ):
         self.db = db
         self.platform_repo = platform_repo
@@ -83,9 +84,7 @@ class ConversationService:
             username=message.user.username,
         )
 
-        conversation = await self.conversation_repo.get_or_create_active(
-            client_id=client.id
-        )
+        conversation = await self.conversation_repo.get_or_create_active(client_id=client.id)
         await self.conversation_repo.update_activity(conversation)
 
         # Сохраняем inbound message
@@ -110,8 +109,7 @@ class ConversationService:
                 intent=intent,
             )
             reply_text = (
-                "Отличный вопрос! Передам его Софии — "
-                "она лично ответит в течение 15 минут 💛"
+                "Отличный вопрос! Передам его Софии — она лично ответит в течение 15 минут 💛"
             )
 
             # Уведомляем админа через Celery (async)

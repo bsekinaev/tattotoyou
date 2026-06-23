@@ -1,6 +1,7 @@
 """
 ORM-модель для базы знаний (FAQ) тату-студии.
 """
+
 from __future__ import annotations
 
 from sqlalchemy import ARRAY, Boolean, Integer, String, Text
@@ -18,6 +19,7 @@ class KnowledgeBase(Base):
     2. Fallback responder — если LLM упал, берём эталонный ответ
     3. Admin API — Соня может редактировать через веб-интерфейс
     """
+
     __tablename__ = "knowledge_base"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

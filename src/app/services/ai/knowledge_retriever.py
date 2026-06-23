@@ -2,12 +2,12 @@
 Retriever для семантического поиска релевантных FAQ через pgvector.
 Часть RAG-пайплайна: Retrieval-Augmented Generation.
 """
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.knowledge.models import KnowledgeBase
-from app.services.ai.embedding_service import generate_embedding
 from app.core.logging import get_logger
+from app.services.ai.embedding_service import generate_embedding
 
 logger = get_logger(__name__)
 
@@ -22,10 +22,10 @@ class KnowledgeRetriever:
         self.db = db
 
     async def retrieve(
-            self,
-            query: str,
-            top_k: int = 3,
-            threshold: float = 0.6,
+        self,
+        query: str,
+        top_k: int = 3,
+        threshold: float = 0.6,
     ) -> list[dict]:
         """
         Находит top_k самых релевантных FAQ для запроса клиента.

@@ -1,5 +1,6 @@
 """Репозиторий для работы с базой знаний."""
-from sqlalchemy import select, update, delete
+
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.knowledge.models import KnowledgeBase
@@ -11,9 +12,9 @@ class KnowledgeBaseRepository(BaseRepository[KnowledgeBase]):
         super().__init__(KnowledgeBase, session)
 
     async def get_active_by_category(
-            self,
-            category: str | None = None,
-            limit: int = 50,
+        self,
+        category: str | None = None,
+        limit: int = 50,
     ) -> list[KnowledgeBase]:
         """
         Получить активные FAQ-записи с фильтрацией по категории.
@@ -56,11 +57,7 @@ class KnowledgeBaseRepository(BaseRepository[KnowledgeBase]):
         Мягкое удаление: помечаем FAQ как неактивный.
         Данные сохраняются для аудита и возможного восстановления.
         """
-        stmt = (
-            update(self.model)
-            .where(self.model.id == id)
-            .values(is_active=False)
-        )
+        stmt = update(self.model).where(self.model.id == id).values(is_active=False)
         result = await self.session.execute(stmt)
         await self.session.flush()
         return result.rowcount > 0

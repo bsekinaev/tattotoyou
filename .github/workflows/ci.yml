@@ -31,10 +31,14 @@ jobs:
         run: |
           uv pip install --system -e ".[dev]"
 
+      - name: Validate Python syntax
+        run: |
+          python -m compileall -q src tests scripts migrations
+
       - name: Run Ruff linter
         run: |
-          ruff check src/ tests/
-          ruff format --check src/ tests/
+          ruff check src/ tests/ scripts/ migrations/
+          ruff format --check src/ tests/ scripts/ migrations/
 
       - name: Run tests with coverage
         run: |

@@ -4,6 +4,7 @@
 Запуск:
     python scripts/seed_knowledge.py
 """
+
 import asyncio
 import sys
 
@@ -12,9 +13,10 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from sqlalchemy import select
-from app.core.logging import setup_logging, get_logger
-from app.infrastructure.db.session import async_session_factory
+
+from app.core.logging import get_logger, setup_logging
 from app.domain.knowledge.models import KnowledgeBase
+from app.infrastructure.db.session import async_session_factory
 
 setup_logging()
 logger = get_logger(__name__)
@@ -167,7 +169,9 @@ async def seed_knowledge_base():
         if existing:
             logger.info("knowledge_base_not_empty", count=len(existing))
             print(f"⚠️  В БЗ уже есть {len(existing)} записей. Seed пропущен.")
-            print("   Чтобы очистить: python -c 'from app.domain.knowledge.models import KnowledgeBase; ...'")
+            print(
+                "   Чтобы очистить: python -c 'from app.domain.knowledge.models import KnowledgeBase; ...'"
+            )
             return
 
         # Добавляем seed-данные

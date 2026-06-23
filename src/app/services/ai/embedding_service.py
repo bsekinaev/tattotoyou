@@ -2,9 +2,12 @@
 Сервис генерации эмбеддингов для семантического поиска.
 Используем sentence-transformers для локальной генерации векторов.
 """
+
 import asyncio
 from functools import lru_cache
+
 from sentence_transformers import SentenceTransformer
+
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)

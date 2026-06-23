@@ -5,79 +5,77 @@ Revises: f06ddef3835f
 Create Date: 2026-06-22 16:00:00.000000
 
 """
-from typing import Sequence, Union
 
-from alembic import op
+from collections.abc import Sequence
+
 import sqlalchemy as sa
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = 'a1b2c3d4e5f6'
-down_revision: Union[str, Sequence[str], None] = 'f06ddef3835f'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+revision: str = "a1b2c3d4e5f6"
+down_revision: str | Sequence[str] | None = "f06ddef3835f"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
     """Upgrade schema."""
     op.create_table(
-        'knowledge_base',
-        sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
+        "knowledge_base",
+        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column(
-            'category',
+            "category",
             sa.String(length=50),
             nullable=False,
-            comment='pricing, aftercare, styles, faq, contraindications, booking'
+            comment="pricing, aftercare, styles, faq, contraindications, booking",
         ),
-        sa.Column('question', sa.Text(), nullable=False, comment='Вопрос клиента'),
-        sa.Column('answer', sa.Text(), nullable=False, comment='Эталонный ответ'),
+        sa.Column("question", sa.Text(), nullable=False, comment="Вопрос клиента"),
+        sa.Column("answer", sa.Text(), nullable=False, comment="Эталонный ответ"),
         sa.Column(
-            'keywords',
+            "keywords",
             sa.ARRAY(sa.String()),
             nullable=False,
-            server_default='{}',
-            comment='Ключевые слова для быстрого поиска'
+            server_default="{}",
+            comment="Ключевые слова для быстрого поиска",
         ),
         sa.Column(
-            'is_active',
+            "is_active",
             sa.Boolean(),
             nullable=False,
-            server_default='true',
-            comment='Активен ли FAQ (можно скрыть без удаления)'
+            server_default="true",
+            comment="Активен ли FAQ (можно скрыть без удаления)",
         ),
         sa.Column(
-            'priority',
+            "priority",
             sa.Integer(),
             nullable=False,
-            server_default='0',
-            comment='Приоритет (выше = важнее)'
+            server_default="0",
+            comment="Приоритет (выше = важнее)",
         ),
         sa.Column(
-            'created_at',
+            "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text('now()'),
+            server_default=sa.text("now()"),
             nullable=False,
         ),
         sa.Column(
-            'updated_at',
+            "updated_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text('now()'),
+            server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.PrimaryKeyConstraint('id'),
+        sa.PrimaryKeyConstraint("id"),
     )
 
     # Индексы для производительности
-    op.create_index('ix_kb_category', 'knowledge_base', ['category'], unique=False)
+    op.create_index("ix_kb_category", "knowledge_base", ["category"], unique=False)
     op.create_index(
-        'ix_kb_active_priority',
-        'knowledge_base',
-        ['is_active', 'priority'],
-        unique=False
+        "ix_kb_active_priority", "knowledge_base", ["is_active", "priority"], unique=False
     )
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    op.drop_index('ix_kb_active_priority', table_name='knowledge_base')
-    op.drop_index('ix_kb_category', table_name='knowledge_base')
-    op.drop_table('knowledge_base')
+    op.drop_index("ix_kb_active_priority", table_name="knowledge_base")
+    op.drop_index("ix_kb_category", table_name="knowledge_base")
+    op.drop_table("knowledge_base")
