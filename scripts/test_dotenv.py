@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Ищем .env
@@ -32,7 +33,7 @@ if env_file.exists():
     with open(env_file, "rb") as f:
         first_bytes = f.read(10)
         print(f"\n🔬 Первые байты файла: {first_bytes!r}")
-        if first_bytes.startswith(b'\xef\xbb\xbf'):
+        if first_bytes.startswith(b"\xef\xbb\xbf"):
             print("  ⚠️  ОБНАРУЖЕН UTF-8 BOM! Нужно пересохранить файл без BOM.")
         else:
             print("  ✅ BOM не обнаружен")

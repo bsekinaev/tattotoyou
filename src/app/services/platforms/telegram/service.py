@@ -12,7 +12,7 @@
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from app.services.ai.knowledge_retriever import KnowledgeRetriever
 from app.core.logging import get_logger
 from app.infrastructure.db.repositories import (
     ClientRepository,
@@ -140,21 +140,22 @@ class TelegramMessageService:
                 last_message=text,
                 chat_id=chat_id,
             )
-        else:
-            # 🤖 AI FLOW: собираем контекст и запрашиваем LLM
-            history_msgs = await self.message_repo.get_history(
-                conversation.id,
-                limit=10,
-            )
+            else:
+            # 🤖 AI FLOW с RAG (Retrieval-Augmented Generation)
+            history_msgs = await self.message_repo.get_history(conversation.id, limit=10)
 
-            # PromptBuilder добавляет System Prompt + имя клиента + VIP статус
-            ai_history = PromptBuilder.build_history(client, history_msgs)
+            # 🔍 ШАГ 2.5: Семантический поиск релевантных FAQ
+            retriever = KnowledgeRetriever(self.db)
+            relevant_faq = await retriever.retrieve(text, top_k=2)
+
+            # 🧠 Собираем умный контекст с FAQ
+            ai_history = PromptBuilder.build_with_faq(client, history_msgs, relevant_faq)
 
             logger.info(
                 "calling_gigachat",
                 chat_id=chat_id,
                 intent=intent,
-                history_length=len(ai_history),
+                faq_count=len(relevant_faq)
             )
             reply_text = await self.ai_client.generate_response(ai_history)
 
@@ -176,7 +177,7 @@ class TelegramMessageService:
             await self.tg_client.send_message(chat_id, reply_text)
         except Exception as e:
             # Логируем, но не падаем — сообщение уже сохранено в БД
-            # София увидит его в админ-панели и сможет ответить вручную
+            # Соня увидит его в админ-панели и сможет ответить вручную
             logger.exception(
                 "failed_to_send_reply",
                 chat_id=chat_id,

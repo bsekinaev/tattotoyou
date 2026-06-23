@@ -126,7 +126,7 @@ class Settings(BaseSettings):
 
     @property
     def postgres_dsn_sync(self) -> str:
-        """DSN для Alembic (синхронный psycopg)."""
+        """DSN для Alembic (синхронный psycopg v3)."""
         password = self.postgres_password.get_secret_value()
         return (
             f"postgresql+psycopg://{self.postgres_user}:{password}"
