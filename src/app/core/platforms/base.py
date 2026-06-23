@@ -57,7 +57,7 @@ class PlatformAdapter(ABC):
 
         Args:
             chat_id: ID чата в платформе
-            text: Текст сообщения (может содержать HTML/Markdown)
+            text: Обычный текст сообщения без платформенной разметки
 
         Returns:
             message_id: ID отправленного сообщения в платформе

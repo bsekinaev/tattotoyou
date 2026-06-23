@@ -1,3 +1,7 @@
+"""Уведомления администратору о событиях, требующих ручного ответа."""
+
+from html import escape
+
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.services.platforms.telegram.client import TelegramClient
@@ -7,9 +11,7 @@ settings = get_settings()
 
 
 class AdminNotifier:
-    """
-    Отправляет уведомления администратору (Софии) при эскалациях.
-    """
+    """Отправляет уведомления администратору при эскалациях."""
 
     @classmethod
     async def notify_escalation(
@@ -20,19 +22,21 @@ class AdminNotifier:
         last_message: str,
         chat_id: int,
     ) -> None:
-        """
-        Формирует и отправляет уведомление об эскалации.
-        """
+        """Сформировать безопасное HTML-уведомление об эскалации."""
         tg_client = TelegramClient()
         try:
-            # Формируем красивое сообщение для Софии
             username_text = f"@{client_username}" if client_username else "без username"
+
+            safe_name = escape(client_name)
+            safe_username = escape(username_text)
+            safe_reason = escape(reason)
+            safe_message = escape(last_message[:200])
 
             message = (
                 f"🚨 <b>ЭСКАЛАЦИЯ</b>\n\n"
-                f"👤 Клиент: {client_name} ({username_text})\n"
-                f"📍 Причина: <code>{reason}</code>\n"
-                f"💬 Последнее сообщение:\n<i>{last_message[:200]}</i>\n\n"
+                f"👤 Клиент: {safe_name} ({safe_username})\n"
+                f"📍 Причина: <code>{safe_reason}</code>\n"
+                f"💬 Последнее сообщение:\n<i>{safe_message}</i>\n\n"
                 f"🔗 Chat ID: <code>{chat_id}</code>\n"
                 f"⚡ Требуется твой ответ!"
             )
@@ -40,14 +44,14 @@ class AdminNotifier:
             await tg_client.send_message(
                 chat_id=settings.telegram_admin_chat_id,
                 text=message,
+                parse_mode="HTML",
             )
             logger.info(
                 "admin_notification_sent",
                 reason=reason,
-                client_name=client_name,
             )
-        except Exception as e:
-            logger.exception("admin_notification_failed", error=str(e))
+        except Exception:
+            logger.exception("admin_notification_failed")
             raise
         finally:
             await tg_client.close()
