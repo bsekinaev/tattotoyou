@@ -1,4 +1,4 @@
-""" "
+"""
 Telegram-specific адаптер.
 Реализует PlatformAdapter для Telegram Bot API.
 """
@@ -10,6 +10,7 @@ import httpx
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.platforms.base import PlatformAdapter, PlatformMessage, PlatformUser
+from app.core.platforms.exceptions import PlatformHTTPError, PlatformTransportError
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -18,7 +19,7 @@ settings = get_settings()
 class TelegramAdapter(PlatformAdapter):
     """Telegram Bot API adapter."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.bot_token = settings.telegram_bot_token.get_secret_value()
         self.webhook_secret = settings.telegram_webhook_secret.get_secret_value()
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
@@ -29,22 +30,40 @@ class TelegramAdapter(PlatformAdapter):
         return "telegram"
 
     async def send_message(self, chat_id: str, text: str) -> str:
-        """Отправить сообщение через Telegram Bot API."""
+        """Отправить клиенту обычный текст без интерпретации HTML."""
         try:
             response = await self._client.post(
                 f"{self.base_url}/sendMessage",
                 json={
-                    "chat_id": int(chat_id),  # Telegram требует int
+                    "chat_id": int(chat_id),
                     "text": text,
-                    "parse_mode": "HTML",
                 },
             )
             response.raise_for_status()
             result = response.json()
             return str(result["result"]["message_id"])
-        except httpx.HTTPError as e:
-            logger.error("telegram_send_failed", error=str(e), chat_id=chat_id)
-            raise
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            logger.error(
+                "telegram_send_http_error",
+                status_code=status_code,
+                chat_id=chat_id,
+            )
+            raise PlatformHTTPError(
+                "Telegram API returned an error response",
+                platform=self.platform_name,
+                status_code=status_code,
+            ) from None
+        except httpx.RequestError as exc:
+            logger.error(
+                "telegram_send_transport_error",
+                error_type=type(exc).__name__,
+                chat_id=chat_id,
+            )
+            raise PlatformTransportError(
+                "Telegram API transport request failed",
+                platform=self.platform_name,
+            ) from None
 
     async def verify_webhook(self, request_data: dict, headers: dict) -> bool:
         """Проверить Telegram webhook secret token."""
@@ -53,17 +72,14 @@ class TelegramAdapter(PlatformAdapter):
 
     async def parse_message(self, request_data: dict) -> PlatformMessage | None:
         """Распарсить Telegram Update в PlatformMessage."""
-        # Пропускаем системные события (без message)
         if "message" not in request_data:
             return None
 
         message = request_data["message"]
 
-        # Пропускаем сообщения без текста (стикеры, фото и т.д.)
         if "text" not in message:
             return None
 
-        # Извлекаем пользователя
         from_user = message.get("from", {})
         user = PlatformUser(
             external_id=str(from_user.get("id", "")),
@@ -72,11 +88,9 @@ class TelegramAdapter(PlatformAdapter):
             is_bot=from_user.get("is_bot", False),
         )
 
-        # Извлекаем chat_id
         chat = message.get("chat", {})
         chat_id = str(chat.get("id", ""))
 
-        # Парсим timestamp
         timestamp = None
         if "date" in message:
             timestamp = datetime.fromtimestamp(message["date"], tz=UTC)

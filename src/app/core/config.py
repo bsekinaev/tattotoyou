@@ -105,6 +105,10 @@ class Settings(BaseSettings):
     # SECURITY
     # ============================================
     secret_key: SecretStr = Field(description="Секретный ключ для HMAC")
+    admin_api_key: SecretStr = Field(
+        min_length=32,
+        description="Закрытый API-ключ для административных endpoints",
+    )
 
     # ============================================
     # OBSERVABILITY

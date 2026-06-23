@@ -1,79 +1,113 @@
+name: tattutuy
+
+x-app-environment: &app-environment
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB:-tattoo_assistant}
+  POSTGRES_USER: ${POSTGRES_USER:-tattoo_user}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_DB: ${REDIS_DB:-0}
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+
+x-app-service: &app-service
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: tattutuy-app:${APP_VERSION:-0.1.0}
+  env_file:
+    - .env
+  environment:
+    <<: *app-environment
+  networks:
+    - backend
+
 services:
-  # ============================================
-  # POSTGRESQL (с pgvector для semantic search)
-  # ============================================
   postgres:
-    image: pgvector/pgvector:pg15  # 🔄 Образ с поддержкой векторов
-    container_name: tattoo_postgres
-    restart: always
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: tattoo_assistant
-      POSTGRES_USER: tattoo_user
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_in_production}
-    ports:
-      - "5433:5432"
+      POSTGRES_DB: ${POSTGRES_DB:-tattoo_assistant}
+      POSTGRES_USER: ${POSTGRES_USER:-tattoo_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    expose:
+      - "5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tattoo_user -d tattoo_assistant"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"",
+        ]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 5s
+    networks:
+      - backend
 
-  # ============================================
-  # REDIS
-  # ============================================
   redis:
     image: redis:7-alpine
-    container_name: tattoo_redis
-    restart: always
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    expose:
+      - "6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+        [
+          "CMD-SHELL",
+          "redis-cli --no-auth-warning -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG",
+        ]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 5s
+    networks:
+      - backend
 
-  # ============================================
-  # FASTAPI (API сервер)
-  # ============================================
+  migrate:
+    <<: *app-service
+    command: alembic upgrade head
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
-    build: .
-    container_name: tattoo_api
-    restart: always
+    <<: *app-service
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
-    ports:
-      - "8000:8000"
-    env_file:
-      - .env
+    restart: unless-stopped
+    expose:
+      - "8000"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
 
-  # ============================================
-  # CELERY WORKER
-  # ============================================
   worker:
-    build: .
-    container_name: tattoo_worker
-    restart: always
+    <<: *app-service
     command: celery -A app.workers.celery_app worker --loglevel=info
-    env_file:
-      - .env
+    restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
 
-# ============================================
-# VOLUMES (хранилища данных)
-# ============================================
 volumes:
   postgres_data:
   redis_data:
+
+networks:
+  backend:
+    driver: bridge
