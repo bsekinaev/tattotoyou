@@ -6,16 +6,13 @@
 
 import base64
 import uuid
-import warnings
 
 import httpx
 from redis.asyncio import Redis
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-
-# У Сбера специфические сертификаты, для MVP отключаем строгую проверку SSL
-warnings.filterwarnings("ignore", message="Unverified HTTPS request")
+from app.core.tls import create_verified_ssl_context
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -28,7 +25,7 @@ class GigaChatClient:
     Архитектурные решения:
     1. Токен кэшируется в Redis (TTL 30 мин) — все воркеры переиспользуют один токен
     2. Fallback на in-memory cache если Redis недоступен (graceful degradation)
-    3. SSL verification отключена (специфика сертификатов Сбера)
+    3. Сертификаты TLS и имена хостов всегда проверяются
     """
 
     # Ключ для хранения токена в Redis
@@ -39,7 +36,12 @@ class GigaChatClient:
     def __init__(self, redis_client: Redis | None = None):
         self.auth_url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
         self.completion_url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
-        self._client = httpx.AsyncClient(verify=False, timeout=30.0)
+        ssl_context = create_verified_ssl_context(settings.gigachat_ca_bundle)
+        self._client = httpx.AsyncClient(
+            verify=ssl_context,
+            timeout=httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0),
+            trust_env=settings.http_trust_env,
+        )
         self._redis = redis_client
 
         # Fallback: in-memory cache на случай если Redis недоступен
@@ -65,7 +67,7 @@ class GigaChatClient:
                     return cached_token
             except Exception as e:
                 # Graceful degradation: если Redis упал, идём к Сберу
-                logger.warning("redis_cache_read_failed", error=str(e))
+                logger.warning("redis_cache_read_failed", error_type=type(e).__name__)
 
         # ========================================
         # ШАГ 2: Fallback на in-memory cache
@@ -109,12 +111,12 @@ class GigaChatClient:
                     await self._redis.set(self._TOKEN_KEY, new_token, ex=self._TOKEN_TTL)
                     logger.info("gigachat_token_cached", ttl_seconds=self._TOKEN_TTL)
                 except Exception as e:
-                    logger.warning("redis_cache_write_failed", error=str(e))
+                    logger.warning("redis_cache_write_failed", error_type=type(e).__name__)
 
             return new_token
 
         except httpx.HTTPError as e:
-            logger.error("gigachat_auth_failed", error=str(e))
+            logger.error("gigachat_auth_failed", error_type=type(e).__name__)
             raise
 
     async def generate_response(self, history: list[dict]) -> str:
@@ -140,15 +142,10 @@ class GigaChatClient:
             result = response.json()
             return result["choices"][0]["message"]["content"]
         except httpx.HTTPError as e:
-            logger.error("gigachat_completion_failed", error=str(e))
+            logger.error("gigachat_completion_failed", error_type=type(e).__name__)
             # Fallback на случай ошибки API
             return "Извините, у меня сейчас технические неполадки. Соня скоро ответит лично! 🙏"
 
     async def close(self):
         """Корректное закрытие HTTP-сессии."""
         await self._client.aclose()
-
-
-# Глобальный синглтон (используется в FastAPI-контексте, без Redis)
-# В Celery-воркерах создаём свежие инстансы с Redis-клиентом
-gigachat_client = GigaChatClient()

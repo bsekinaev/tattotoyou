@@ -1,6 +1,9 @@
 """Репозиторий для работы с платформами."""
 
+from typing import Any
+
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 
 from app.domain.clients.models import Platform
 from app.infrastructure.db.repository import BaseRepository
@@ -15,12 +18,29 @@ class PlatformRepository(BaseRepository[Platform]):
         result = await self.session.execute(select(self.model).where(self.model.name == name))
         return result.scalar_one_or_none()
 
-    async def get_or_create(self, name: str, **kwargs) -> Platform:
+    async def get_or_create(self, name: str, **kwargs: Any) -> Platform:
+        """Атомарно получить существующую платформу или создать новую.
+
+        ``INSERT .. ON CONFLICT DO NOTHING`` устраняет гонку между параллельными
+        worker-процессами без полного rollback текущей транзакции.
         """
-        Get-or-Create паттерн.
-        Возвращает существующую платформу или создаёт новую.
-        """
-        platform = await self.get_by_name(name)
-        if not platform:
-            platform = await self.create(name=name, **kwargs)
+        values = {"name": name, **kwargs}
+        values.setdefault("is_active", True)
+
+        statement = (
+            insert(self.model)
+            .values(**values)
+            .on_conflict_do_nothing(index_elements=[self.model.name])
+            .returning(self.model.id)
+        )
+        result = await self.session.execute(statement)
+        inserted_id = result.scalar_one_or_none()
+
+        if inserted_id is not None:
+            platform = await self.get_by_id(inserted_id)
+        else:
+            platform = await self.get_by_name(name)
+
+        if platform is None:
+            raise RuntimeError("Platform upsert completed without a visible row")
         return platform

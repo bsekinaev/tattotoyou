@@ -155,5 +155,5 @@ class ConversationService:
                 "failed_to_send_reply",
                 chat_id=message.chat_id,
                 platform=message.platform,
-                error=str(e),
+                error_type=type(e).__name__,
             )

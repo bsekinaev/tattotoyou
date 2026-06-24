@@ -52,5 +52,5 @@ class RateLimiter:
 
         except Exception as e:
             # Graceful degradation: если Redis упал, не блокируем пользователя
-            logger.error("rate_limiter_failed", error=str(e))
+            logger.error("rate_limiter_failed", error_type=type(e).__name__)
             return True, -1

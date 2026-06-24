@@ -76,6 +76,9 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-v --cov=src/app --cov-report=term-missing"
+markers = [
+    "integration: requires migrated PostgreSQL infrastructure",
+]
 
 # ============================================
 # MYPY

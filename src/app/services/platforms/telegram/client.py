@@ -19,7 +19,10 @@ class TelegramClient:
         self.base_url = (
             f"https://api.telegram.org/bot{settings.telegram_bot_token.get_secret_value()}"
         )
-        self._client = httpx.AsyncClient(timeout=10.0)
+        self._client = httpx.AsyncClient(
+            timeout=10.0,
+            trust_env=settings.http_trust_env,
+        )
 
     async def send_message(
         self,
@@ -69,12 +72,3 @@ class TelegramClient:
     async def close(self) -> None:
         """Корректно закрыть HTTP-клиент."""
         await self._client.aclose()
-
-
-# Временный singleton для существующих зависимостей. Будет удалён при outbox-рефакторинге.
-tg_client = TelegramClient()
-
-
-def get_telegram_client() -> TelegramClient:
-    """Dependency для FastAPI, возвращающая singleton TelegramClient."""
-    return tg_client

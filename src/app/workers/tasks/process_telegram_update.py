@@ -1,5 +1,6 @@
 import asyncio
 import sys
+from contextlib import AsyncExitStack
 
 import redis.asyncio as aioredis
 
@@ -40,65 +41,60 @@ def process_telegram_update_task(self, update_dict: dict):
         logger.info("celery_task_completed", update_id=update_dict.get("update_id"))
     except Exception as exc:
         if self.request.retries >= self.max_retries:
-            logger.error("task_permanently_failed_sending_fallback", error=str(exc))
+            logger.error("task_permanently_failed_sending_fallback", error_type=type(exc).__name__)
             asyncio.run(_send_fallback(update_dict))
         raise exc
 
 
-async def _process_async(update_dict: dict):
-    # Создаём адаптер и парсим сообщение
-    telegram_adapter = TelegramAdapter()
-    message = await telegram_adapter.parse_message(update_dict)
+async def _process_async(update_dict: dict) -> None:
+    """Обработать Telegram update и закрыть все созданные async-ресурсы."""
+    async with AsyncExitStack() as resources:
+        telegram_adapter = TelegramAdapter()
+        resources.push_async_callback(telegram_adapter.close)
 
-    if not message:
-        logger.info("skipping_non_message_update")
-        return
+        message = await telegram_adapter.parse_message(update_dict)
+        if not message:
+            logger.info("skipping_non_message_update")
+            return
 
-    # Создаём Redis-клиент для distributed token caching
-    redis_client = aioredis.from_url(
-        settings.redis_url,
-        decode_responses=True,
-        socket_connect_timeout=5,
-    )
+        # Redis хранит распределённый OAuth token cache GigaChat.
+        redis_client = aioredis.from_url(
+            settings.redis_url,
+            decode_responses=True,
+            socket_connect_timeout=5,
+        )
+        resources.push_async_callback(redis_client.aclose)
 
-    # Создаём AI-клиент с Redis cache
-    ai_client = GigaChatClient(redis_client=redis_client)
+        ai_client = GigaChatClient(redis_client=redis_client)
+        resources.push_async_callback(ai_client.close)
 
-    try:
         async with async_session_factory() as db:
-            # ConversationService работает с абстрактным PlatformAdapter
             service = ConversationService(
                 db=db,
                 platform_repo=PlatformRepository(db),
                 client_repo=ClientRepository(db),
                 conversation_repo=ConversationRepository(db),
                 message_repo=MessageRepository(db),
-                platform_adapter=telegram_adapter,  # ← Platform Adapter!
+                platform_adapter=telegram_adapter,
                 ai_client=ai_client,
             )
             await service.process_message(message)
-    finally:
-        await telegram_adapter.close()
-        await ai_client.close()
-        await redis_client.close()
 
 
-async def _send_fallback(update_dict: dict):
-    """Отправляет шаблонный ответ, если LLM и БД окончательно упали."""
+async def _send_fallback(update_dict: dict) -> None:
+    """Отправить fallback и закрыть адаптер при любом результате парсинга."""
     try:
-        telegram_adapter = TelegramAdapter()
-        message = await telegram_adapter.parse_message(update_dict)
+        async with AsyncExitStack() as resources:
+            telegram_adapter = TelegramAdapter()
+            resources.push_async_callback(telegram_adapter.close)
 
-        if not message or not message.text:
-            return
+            message = await telegram_adapter.parse_message(update_dict)
+            if not message or not message.text:
+                return
 
-        intent = IntentClassifier.classify(message.text)
-        fallback_text = FallbackResponder.get_response(intent)
-
-        try:
+            intent = IntentClassifier.classify(message.text)
+            fallback_text = FallbackResponder.get_response(intent)
             await telegram_adapter.send_message(message.chat_id, fallback_text)
             logger.info("fallback_message_sent", chat_id=message.chat_id)
-        finally:
-            await telegram_adapter.close()
-    except Exception as e:
-        logger.exception("fallback_send_failed", error=str(e))
+    except Exception as exc:
+        logger.exception("fallback_send_failed", error_type=type(exc).__name__)

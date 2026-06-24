@@ -9,13 +9,14 @@ Production-ready FastAPI application с:
 
 import uuid
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 import redis.asyncio as aioredis
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from structlog.contextvars import bind_contextvars, clear_contextvars
 
 # 🆕 Knowledge Base Admin API
 from app.api.admin.knowledge import router as admin_knowledge_router
@@ -23,7 +24,6 @@ from app.api.webhooks.telegram import router as telegram_router
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.infrastructure.db.session import async_engine, close_db, init_db
-from app.services.platforms.telegram.client import tg_client
 
 # Инициализируем логирование ПЕРВЫМ ДЕЛОМ
 setup_logging()
@@ -35,9 +35,12 @@ redis_client: aioredis.Redis | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """
-    Управление жизненным циклом приложения.
-    Гарантирует корректную инициализацию и очистку всех ресурсов.
+    """Управлять ресурсами приложения и состоянием инфраструктуры.
+
+    В локальной разработке приложение может стартовать в degraded-режиме:
+    ``/live`` остаётся доступным, а ``/ready`` возвращает 503 до восстановления
+    PostgreSQL и Redis. В Docker/production включён строгий режим, поэтому
+    недоступная обязательная зависимость останавливает startup.
     """
     global redis_client
     settings = get_settings()
@@ -47,63 +50,71 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app_name=settings.app_name,
         version=settings.app_version,
         debug=settings.debug,
+        startup_require_dependencies=settings.startup_require_dependencies,
+        postgres_target=f"{settings.postgres_host}:{settings.postgres_port}",
+        redis_target=f"{settings.redis_host}:{settings.redis_port}",
     )
 
-    # ============================================
-    # STARTUP: Инициализируем все ресурсы
-    # ============================================
-    try:
-        # 1. Инициализируем базу данных
-        await init_db()
-        logger.info("database_ready")
+    unavailable: list[str] = []
 
-        # 2. Инициализируем Redis
+    async with AsyncExitStack() as resources:
+        resources.push_async_callback(close_db)
+
         redis_client = aioredis.from_url(
             settings.redis_url,
             decode_responses=True,
-            socket_connect_timeout=5,
-            socket_timeout=5,
+            socket_connect_timeout=settings.redis_connect_timeout_seconds,
+            socket_timeout=settings.redis_connect_timeout_seconds,
             retry_on_timeout=True,
         )
-        await redis_client.ping()
+        resources.push_async_callback(redis_client.aclose)
         app.state.redis = redis_client
-        logger.info("redis_ready")
 
-        logger.info("application_started")
+        try:
+            await init_db()
+            logger.info("database_ready")
+        except Exception as exc:
+            unavailable.append("database")
+            logger.error(
+                "database_startup_check_failed",
+                error_type=type(exc).__name__,
+                postgres_target=f"{settings.postgres_host}:{settings.postgres_port}",
+            )
 
-    except Exception as e:
-        logger.exception("application_startup_failed", error=str(e))
-        raise
+        try:
+            await redis_client.ping()
+            logger.info("redis_ready")
+        except Exception as exc:
+            unavailable.append("redis")
+            logger.error(
+                "redis_startup_check_failed",
+                error_type=type(exc).__name__,
+                redis_target=f"{settings.redis_host}:{settings.redis_port}",
+            )
 
-    # ============================================
-    # ПРИЛОЖЕНИЕ РАБОТАЕТ
-    # ============================================
-    yield
+        app.state.startup_unavailable_dependencies = tuple(unavailable)
 
-    # ============================================
-    # SHUTDOWN: Корректно закрываем все ресурсы
-    # ============================================
-    logger.info("application_shutting_down")
+        if unavailable and settings.startup_require_dependencies:
+            logger.error(
+                "application_startup_failed",
+                unavailable_dependencies=unavailable,
+            )
+            raise RuntimeError("Required infrastructure is unavailable: " + ", ".join(unavailable))
 
-    try:
-        await tg_client.close()
-        logger.info("telegram_client_closed")
-    except Exception as e:
-        logger.error("telegram_client_close_failed", error=str(e))
+        if unavailable:
+            logger.warning(
+                "application_started_degraded",
+                unavailable_dependencies=unavailable,
+            )
+        else:
+            logger.info("application_started")
 
-    try:
-        if redis_client:
-            await redis_client.close()
-            logger.info("redis_closed")
-    except Exception as e:
-        logger.error("redis_close_failed", error=str(e))
+        try:
+            yield
+        finally:
+            logger.info("application_shutting_down")
 
-    try:
-        await close_db()
-        logger.info("database_closed")
-    except Exception as e:
-        logger.error("database_close_failed", error=str(e))
-
+    redis_client = None
     logger.info("application_stopped")
 
 
@@ -127,13 +138,18 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def add_request_id(request: Request, call_next):
-        """Добавляет уникальный request_id для каждого запроса."""
+        """Добавить request ID и связать его со структурированными логами."""
         request_id = str(uuid.uuid4())[:8]
         request.state.request_id = request_id
 
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        return response
+        clear_contextvars()
+        bind_contextvars(request_id=request_id)
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            clear_contextvars()
 
     app.add_middleware(
         CORSMiddleware,
@@ -153,53 +169,80 @@ def create_app() -> FastAPI:
     async def global_exception_handler(request: Request, exc: Exception):
         """Глобальный обработчик необработанных исключений."""
         request_id = getattr(request.state, "request_id", "unknown")
-        logger.exception(
+        logger.error(
             "unhandled_exception",
             request_id=request_id,
             path=request.url.path,
-            error=str(exc),
+            error_type=type(exc).__name__,
+            exc_info=exc,
         )
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal server error", "request_id": request_id},
+            headers={"X-Request-ID": request_id},
         )
 
     # ============================================
     # ROUTES
     # ============================================
 
-    @app.get("/health", tags=["system"])
-    async def health_check():
-        """Health check эндпоинт для мониторинга."""
-        health_status = {
-            "status": "ok",
-            "version": settings.app_version,
-            "checks": {},
-        }
+    async def readiness_response() -> JSONResponse:
+        """Проверить обязательные зависимости без раскрытия деталей ошибок."""
+        checks: dict[str, str] = {}
 
-        # PostgreSQL
         try:
             async with async_engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
-            health_status["checks"]["database"] = "ok"
-        except Exception as e:
-            health_status["checks"]["database"] = f"error: {str(e)}"
-            health_status["status"] = "degraded"
+            checks["database"] = "ok"
+        except Exception as exc:
+            checks["database"] = "error"
+            logger.exception(
+                "database_readiness_failed",
+                error_type=type(exc).__name__,
+            )
 
-        # Redis
         try:
-            if redis_client:
-                await redis_client.ping()
-                health_status["checks"]["redis"] = "ok"
+            if redis_client is None:
+                checks["redis"] = "error"
+                logger.warning("redis_readiness_failed", reason="not_initialized")
             else:
-                health_status["checks"]["redis"] = "not_initialized"
-                health_status["status"] = "degraded"
-        except Exception as e:
-            health_status["checks"]["redis"] = f"error: {str(e)}"
-            health_status["status"] = "degraded"
+                await redis_client.ping()
+                checks["redis"] = "ok"
+        except Exception as exc:
+            checks["redis"] = "error"
+            logger.exception(
+                "redis_readiness_failed",
+                error_type=type(exc).__name__,
+            )
 
-        status_code = 200 if health_status["status"] == "ok" else 503
-        return JSONResponse(content=health_status, status_code=status_code)
+        is_ready = all(status == "ok" for status in checks.values())
+        return JSONResponse(
+            content={
+                "status": "ok" if is_ready else "not_ready",
+                "version": settings.app_version,
+                "checks": checks,
+            },
+            status_code=200 if is_ready else 503,
+        )
+
+    @app.get("/live", tags=["system"])
+    async def liveness_check() -> dict[str, str]:
+        """Подтвердить, что HTTP-процесс приложения работает."""
+        return {
+            "status": "ok",
+            "service": settings.app_name,
+            "version": settings.app_version,
+        }
+
+    @app.get("/ready", tags=["system"])
+    async def readiness_check() -> JSONResponse:
+        """Подтвердить доступность PostgreSQL и Redis."""
+        return await readiness_response()
+
+    @app.get("/health", include_in_schema=False)
+    async def legacy_health_check() -> JSONResponse:
+        """Обратная совместимость: старый health endpoint равен readiness."""
+        return await readiness_response()
 
     @app.get("/", tags=["system"])
     async def root():
@@ -208,7 +251,8 @@ def create_app() -> FastAPI:
             "service": settings.app_name,
             "version": settings.app_version,
             "docs": "/docs" if settings.debug else "disabled in production",
-            "health": "/health",
+            "liveness": "/live",
+            "readiness": "/ready",
         }
 
     # ============================================

@@ -1,12 +1,8 @@
-"""
-Конфигурация приложения через Pydantic Settings.
-Bulletproof-версия с явной загрузкой .env через python-dotenv.
-"""
+"""Конфигурация приложения через Pydantic Settings."""
 
 from functools import lru_cache
 from pathlib import Path
 
-from dotenv import load_dotenv
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -28,19 +24,6 @@ PROJECT_ROOT = find_project_root()
 ENV_FILE = PROJECT_ROOT / ".env"
 
 
-# ============================================
-# ЯВНАЯ ЗАГРУЗКА .env (критично для Windows!)
-# ============================================
-# Это нужно сделать ПЕРЕД определением класса Settings,
-# чтобы переменные уже были в os.environ к моменту валидации.
-if ENV_FILE.exists():
-    # override=False — не перезаписываем реальные env-переменные из системы
-    load_dotenv(dotenv_path=ENV_FILE, override=False)
-else:
-    # В проде .env может не быть, используем env vars контейнера
-    print(f"⚠️  .env file not found at {ENV_FILE}, using system env vars")
-
-
 class Settings(BaseSettings):
     """Основные настройки приложения."""
 
@@ -51,6 +34,8 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     debug: bool = False
     log_level: str = "INFO"
+    http_trust_env: bool = False
+    startup_require_dependencies: bool = False
 
     # ============================================
     # TELEGRAM (обязательные)
@@ -83,23 +68,26 @@ class Settings(BaseSettings):
     gigachat_client_secret: SecretStr = Field(description="Client Secret")
     gigachat_scope: str = "GIGACHAT_API_PERS"
     gigachat_model: str = "GigaChat-Pro"
+    gigachat_ca_bundle: Path | None = None
 
     # ============================================
     # DATABASE
     # ============================================
     postgres_host: str = "localhost"
-    postgres_port: int = 5432
+    postgres_port: int = 5433
     postgres_db: str = "tattoo_assistant"
     postgres_user: str = "tattoo_user"
     postgres_password: SecretStr = Field(description="Пароль от PostgreSQL")
+    postgres_connect_timeout_seconds: int = Field(default=5, ge=1, le=60)
 
     # ============================================
     # REDIS
     # ============================================
     redis_host: str = "localhost"
-    redis_port: int = 6379
+    redis_port: int = 6380
     redis_db: int = 0
     redis_password: SecretStr | None = None
+    redis_connect_timeout_seconds: int = Field(default=5, ge=1, le=60)
 
     # ============================================
     # SECURITY
@@ -156,6 +144,7 @@ class Settings(BaseSettings):
         "ig_access_token",
         "ig_app_secret",
         "redis_password",
+        "gigachat_ca_bundle",
         "sentry_dsn",
         mode="before",
     )
@@ -198,7 +187,7 @@ class Settings(BaseSettings):
         return v.upper()
 
     # ============================================
-    # PYDANTIC CONFIG (оставляем на всякий случай)
+    # PYDANTIC SETTINGS
     # ============================================
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE),

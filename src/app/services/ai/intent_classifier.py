@@ -83,8 +83,8 @@ class IntentClassifier:
         text_lower = text.lower()
         for intent, keywords in cls.INTENTS.items():
             if any(keyword in text_lower for keyword in keywords):
-                logger.info("intent_classified", intent=intent, text_snippet=text[:30])
+                logger.info("intent_classified", intent=intent)
                 return intent
 
-        logger.debug("intent_ambiguous", text_snippet=text[:30])
+        logger.debug("intent_ambiguous")
         return "ambiguous"
