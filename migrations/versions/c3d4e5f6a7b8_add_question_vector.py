@@ -13,26 +13,20 @@ from pgvector.sqlalchemy import Vector
 
 # revision identifiers, used by Alembic.
 revision: str = "c3d4e5f6a7b8"
-down_revision: str | Sequence[str] | None = "a1b2c3d4e5f6"  # ← ОБЯЗАТЕЛЬНО В КАВЫЧКАХ!
+down_revision: str | Sequence[str] | None = "a1b2c3d4e5f6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
-    # Размерность 384 — для paraphrase-multilingual-MiniLM-L12-v2
-    op.add_column("knowledge_base", sa.Column("question_vector", Vector(384), nullable=True))
-    # IVFFlat индекс для быстрого cosine similarity search
-    op.create_index(
-        "ix_kb_question_vector",
+    """Enable pgvector and add the nullable FAQ embedding column."""
+    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    op.add_column(
         "knowledge_base",
-        ["question_vector"],
-        postgresql_using="ivfflat",
-        postgresql_with={"lists": 10},
+        sa.Column("question_vector", Vector(384), nullable=True),
     )
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
-    op.drop_index("ix_kb_question_vector", table_name="knowledge_base")
+    """Remove the FAQ embedding column without dropping a shared extension."""
     op.drop_column("knowledge_base", "question_vector")

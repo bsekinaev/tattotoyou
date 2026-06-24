@@ -1,12 +1,8 @@
-"""
-Конфигурация приложения через Pydantic Settings.
-Bulletproof-версия с явной загрузкой .env через python-dotenv.
-"""
+"""Конфигурация приложения через Pydantic Settings."""
 
 from functools import lru_cache
 from pathlib import Path
 
-from dotenv import load_dotenv
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -26,19 +22,6 @@ def find_project_root() -> Path:
 
 PROJECT_ROOT = find_project_root()
 ENV_FILE = PROJECT_ROOT / ".env"
-
-
-# ============================================
-# ЯВНАЯ ЗАГРУЗКА .env (критично для Windows!)
-# ============================================
-# Это нужно сделать ПЕРЕД определением класса Settings,
-# чтобы переменные уже были в os.environ к моменту валидации.
-if ENV_FILE.exists():
-    # override=False — не перезаписываем реальные env-переменные из системы
-    load_dotenv(dotenv_path=ENV_FILE, override=False)
-else:
-    # В проде .env может не быть, используем env vars контейнера
-    print(f"⚠️  .env file not found at {ENV_FILE}, using system env vars")
 
 
 class Settings(BaseSettings):
@@ -204,7 +187,7 @@ class Settings(BaseSettings):
         return v.upper()
 
     # ============================================
-    # PYDANTIC CONFIG (оставляем на всякий случай)
+    # PYDANTIC SETTINGS
     # ============================================
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE),

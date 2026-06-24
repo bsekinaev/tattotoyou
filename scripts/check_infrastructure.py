@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from collections.abc import Awaitable, Callable
 
 import redis.asyncio as aioredis
 from sqlalchemy import text
@@ -47,9 +46,7 @@ def _status_line(name: str, target: str, result: tuple[bool, str]) -> str:
 
 async def main() -> int:
     settings = get_settings()
-    postgres_target = (
-        f"{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
-    )
+    postgres_target = f"{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
     redis_target = f"{settings.redis_host}:{settings.redis_port}/{settings.redis_db}"
 
     database_result, redis_result = await asyncio.gather(
@@ -65,11 +62,8 @@ async def main() -> int:
         return 0
 
     print("\nЗапустите локальную инфраструктуру:")
-    print(
-        "docker compose -f docker-compose.yml "
-        "-f docker-compose.dev.yml up -d postgres redis"
-    )
-    print("Затем проверьте, что .env использует PostgreSQL 5433 и Redis 6380.")
+    print("docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis")
+    print("Затем проверьте, что .env совпадает с опубликованными host-портами Compose.")
     return 1
 
 

@@ -99,9 +99,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "application_startup_failed",
                 unavailable_dependencies=unavailable,
             )
-            raise RuntimeError(
-                "Required infrastructure is unavailable: " + ", ".join(unavailable)
-            )
+            raise RuntimeError("Required infrastructure is unavailable: " + ", ".join(unavailable))
 
         if unavailable:
             logger.warning(
