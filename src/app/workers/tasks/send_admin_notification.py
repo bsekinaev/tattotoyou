@@ -38,5 +38,5 @@ def send_admin_notification_task(
         )
         logger.info("admin_notification_task_completed")
     except Exception as exc:
-        logger.exception("admin_notification_task_failed", error=str(exc))
+        logger.exception("admin_notification_task_failed", error_type=type(exc).__name__)
         raise exc

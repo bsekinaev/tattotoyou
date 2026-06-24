@@ -74,7 +74,7 @@ class KnowledgeRetriever:
         rows = result.fetchall()
 
         if not rows:
-            logger.debug("no_relevant_faq_found", query=query[:50])
+            logger.debug("no_relevant_faq_found")
             return []
 
         faq_items = [
@@ -90,7 +90,6 @@ class KnowledgeRetriever:
 
         logger.info(
             "faq_retrieved",
-            query=query[:50],
             found=len(faq_items),
             top_similarity=faq_items[0]["similarity"],
         )

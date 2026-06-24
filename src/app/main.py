@@ -16,6 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from structlog.contextvars import bind_contextvars, clear_contextvars
 
 # 🆕 Knowledge Base Admin API
 from app.api.admin.knowledge import router as admin_knowledge_router
@@ -23,7 +24,6 @@ from app.api.webhooks.telegram import router as telegram_router
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.infrastructure.db.session import async_engine, close_db, init_db
-from app.services.platforms.telegram.client import tg_client
 
 # Инициализируем логирование ПЕРВЫМ ДЕЛОМ
 setup_logging()
@@ -72,7 +72,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("application_started")
 
     except Exception as e:
-        logger.exception("application_startup_failed", error=str(e))
+        logger.exception(
+            "application_startup_failed",
+            error_type=type(e).__name__,
+        )
         raise
 
     # ============================================
@@ -86,23 +89,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("application_shutting_down")
 
     try:
-        await tg_client.close()
-        logger.info("telegram_client_closed")
-    except Exception as e:
-        logger.error("telegram_client_close_failed", error=str(e))
-
-    try:
         if redis_client:
             await redis_client.close()
             logger.info("redis_closed")
     except Exception as e:
-        logger.error("redis_close_failed", error=str(e))
+        logger.exception(
+            "redis_close_failed",
+            error_type=type(e).__name__,
+        )
 
     try:
         await close_db()
         logger.info("database_closed")
     except Exception as e:
-        logger.error("database_close_failed", error=str(e))
+        logger.exception(
+            "database_close_failed",
+            error_type=type(e).__name__,
+        )
 
     logger.info("application_stopped")
 
@@ -127,13 +130,18 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def add_request_id(request: Request, call_next):
-        """Добавляет уникальный request_id для каждого запроса."""
+        """Добавить request ID и связать его со структурированными логами."""
         request_id = str(uuid.uuid4())[:8]
         request.state.request_id = request_id
 
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        return response
+        clear_contextvars()
+        bind_contextvars(request_id=request_id)
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            clear_contextvars()
 
     app.add_middleware(
         CORSMiddleware,
@@ -153,53 +161,80 @@ def create_app() -> FastAPI:
     async def global_exception_handler(request: Request, exc: Exception):
         """Глобальный обработчик необработанных исключений."""
         request_id = getattr(request.state, "request_id", "unknown")
-        logger.exception(
+        logger.error(
             "unhandled_exception",
             request_id=request_id,
             path=request.url.path,
-            error=str(exc),
+            error_type=type(exc).__name__,
+            exc_info=exc,
         )
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal server error", "request_id": request_id},
+            headers={"X-Request-ID": request_id},
         )
 
     # ============================================
     # ROUTES
     # ============================================
 
-    @app.get("/health", tags=["system"])
-    async def health_check():
-        """Health check эндпоинт для мониторинга."""
-        health_status = {
-            "status": "ok",
-            "version": settings.app_version,
-            "checks": {},
-        }
+    async def readiness_response() -> JSONResponse:
+        """Проверить обязательные зависимости без раскрытия деталей ошибок."""
+        checks: dict[str, str] = {}
 
-        # PostgreSQL
         try:
             async with async_engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
-            health_status["checks"]["database"] = "ok"
-        except Exception as e:
-            health_status["checks"]["database"] = f"error: {str(e)}"
-            health_status["status"] = "degraded"
+            checks["database"] = "ok"
+        except Exception as exc:
+            checks["database"] = "error"
+            logger.exception(
+                "database_readiness_failed",
+                error_type=type(exc).__name__,
+            )
 
-        # Redis
         try:
-            if redis_client:
-                await redis_client.ping()
-                health_status["checks"]["redis"] = "ok"
+            if redis_client is None:
+                checks["redis"] = "error"
+                logger.warning("redis_readiness_failed", reason="not_initialized")
             else:
-                health_status["checks"]["redis"] = "not_initialized"
-                health_status["status"] = "degraded"
-        except Exception as e:
-            health_status["checks"]["redis"] = f"error: {str(e)}"
-            health_status["status"] = "degraded"
+                await redis_client.ping()
+                checks["redis"] = "ok"
+        except Exception as exc:
+            checks["redis"] = "error"
+            logger.exception(
+                "redis_readiness_failed",
+                error_type=type(exc).__name__,
+            )
 
-        status_code = 200 if health_status["status"] == "ok" else 503
-        return JSONResponse(content=health_status, status_code=status_code)
+        is_ready = all(status == "ok" for status in checks.values())
+        return JSONResponse(
+            content={
+                "status": "ok" if is_ready else "not_ready",
+                "version": settings.app_version,
+                "checks": checks,
+            },
+            status_code=200 if is_ready else 503,
+        )
+
+    @app.get("/live", tags=["system"])
+    async def liveness_check() -> dict[str, str]:
+        """Подтвердить, что HTTP-процесс приложения работает."""
+        return {
+            "status": "ok",
+            "service": settings.app_name,
+            "version": settings.app_version,
+        }
+
+    @app.get("/ready", tags=["system"])
+    async def readiness_check() -> JSONResponse:
+        """Подтвердить доступность PostgreSQL и Redis."""
+        return await readiness_response()
+
+    @app.get("/health", include_in_schema=False)
+    async def legacy_health_check() -> JSONResponse:
+        """Обратная совместимость: старый health endpoint равен readiness."""
+        return await readiness_response()
 
     @app.get("/", tags=["system"])
     async def root():
@@ -208,7 +243,8 @@ def create_app() -> FastAPI:
             "service": settings.app_name,
             "version": settings.app_version,
             "docs": "/docs" if settings.debug else "disabled in production",
-            "health": "/health",
+            "liveness": "/live",
+            "readiness": "/ready",
         }
 
     # ============================================

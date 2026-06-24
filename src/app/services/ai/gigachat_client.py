@@ -40,6 +40,7 @@ class GigaChatClient:
         self._client = httpx.AsyncClient(
             verify=ssl_context,
             timeout=httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0),
+            trust_env=settings.http_trust_env,
         )
         self._redis = redis_client
 
@@ -66,7 +67,7 @@ class GigaChatClient:
                     return cached_token
             except Exception as e:
                 # Graceful degradation: если Redis упал, идём к Сберу
-                logger.warning("redis_cache_read_failed", error=str(e))
+                logger.warning("redis_cache_read_failed", error_type=type(e).__name__)
 
         # ========================================
         # ШАГ 2: Fallback на in-memory cache
@@ -110,12 +111,12 @@ class GigaChatClient:
                     await self._redis.set(self._TOKEN_KEY, new_token, ex=self._TOKEN_TTL)
                     logger.info("gigachat_token_cached", ttl_seconds=self._TOKEN_TTL)
                 except Exception as e:
-                    logger.warning("redis_cache_write_failed", error=str(e))
+                    logger.warning("redis_cache_write_failed", error_type=type(e).__name__)
 
             return new_token
 
         except httpx.HTTPError as e:
-            logger.error("gigachat_auth_failed", error=str(e))
+            logger.error("gigachat_auth_failed", error_type=type(e).__name__)
             raise
 
     async def generate_response(self, history: list[dict]) -> str:
@@ -141,15 +142,10 @@ class GigaChatClient:
             result = response.json()
             return result["choices"][0]["message"]["content"]
         except httpx.HTTPError as e:
-            logger.error("gigachat_completion_failed", error=str(e))
+            logger.error("gigachat_completion_failed", error_type=type(e).__name__)
             # Fallback на случай ошибки API
             return "Извините, у меня сейчас технические неполадки. Соня скоро ответит лично! 🙏"
 
     async def close(self):
         """Корректное закрытие HTTP-сессии."""
         await self._client.aclose()
-
-
-# Глобальный синглтон (используется в FastAPI-контексте, без Redis)
-# В Celery-воркерах создаём свежие инстансы с Redis-клиентом
-gigachat_client = GigaChatClient()

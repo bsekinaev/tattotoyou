@@ -40,7 +40,7 @@ def process_telegram_update_task(self, update_dict: dict):
         logger.info("celery_task_completed", update_id=update_dict.get("update_id"))
     except Exception as exc:
         if self.request.retries >= self.max_retries:
-            logger.error("task_permanently_failed_sending_fallback", error=str(exc))
+            logger.error("task_permanently_failed_sending_fallback", error_type=type(exc).__name__)
             asyncio.run(_send_fallback(update_dict))
         raise exc
 
@@ -101,4 +101,4 @@ async def _send_fallback(update_dict: dict):
         finally:
             await telegram_adapter.close()
     except Exception as e:
-        logger.exception("fallback_send_failed", error=str(e))
+        logger.exception("fallback_send_failed", error_type=type(e).__name__)

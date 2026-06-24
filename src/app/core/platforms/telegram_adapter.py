@@ -23,7 +23,10 @@ class TelegramAdapter(PlatformAdapter):
         self.bot_token = settings.telegram_bot_token.get_secret_value()
         self.webhook_secret = settings.telegram_webhook_secret.get_secret_value()
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
-        self._client = httpx.AsyncClient(timeout=10.0)
+        self._client = httpx.AsyncClient(
+            timeout=10.0,
+            trust_env=settings.http_trust_env,
+        )
 
     @property
     def platform_name(self) -> str:

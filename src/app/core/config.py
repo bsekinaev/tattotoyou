@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     debug: bool = False
     log_level: str = "INFO"
+    http_trust_env: bool = False
 
     # ============================================
     # TELEGRAM (обязательные)
