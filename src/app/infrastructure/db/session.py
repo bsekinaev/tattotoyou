@@ -28,6 +28,7 @@ async_engine = create_async_engine(
     max_overflow=20,
     pool_pre_ping=True,
     pool_recycle=3600,
+    connect_args={"connect_timeout": settings.postgres_connect_timeout_seconds},
 )
 
 # ============================================

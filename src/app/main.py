@@ -9,7 +9,7 @@ Production-ready FastAPI application с:
 
 import uuid
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 import redis.asyncio as aioredis
 from fastapi import FastAPI, Request
@@ -35,9 +35,12 @@ redis_client: aioredis.Redis | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """
-    Управление жизненным циклом приложения.
-    Гарантирует корректную инициализацию и очистку всех ресурсов.
+    """Управлять ресурсами приложения и состоянием инфраструктуры.
+
+    В локальной разработке приложение может стартовать в degraded-режиме:
+    ``/live`` остаётся доступным, а ``/ready`` возвращает 503 до восстановления
+    PostgreSQL и Redis. В Docker/production включён строгий режим, поэтому
+    недоступная обязательная зависимость останавливает startup.
     """
     global redis_client
     settings = get_settings()
@@ -47,66 +50,73 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app_name=settings.app_name,
         version=settings.app_version,
         debug=settings.debug,
+        startup_require_dependencies=settings.startup_require_dependencies,
+        postgres_target=f"{settings.postgres_host}:{settings.postgres_port}",
+        redis_target=f"{settings.redis_host}:{settings.redis_port}",
     )
 
-    # ============================================
-    # STARTUP: Инициализируем все ресурсы
-    # ============================================
-    try:
-        # 1. Инициализируем базу данных
-        await init_db()
-        logger.info("database_ready")
+    unavailable: list[str] = []
 
-        # 2. Инициализируем Redis
+    async with AsyncExitStack() as resources:
+        resources.push_async_callback(close_db)
+
         redis_client = aioredis.from_url(
             settings.redis_url,
             decode_responses=True,
-            socket_connect_timeout=5,
-            socket_timeout=5,
+            socket_connect_timeout=settings.redis_connect_timeout_seconds,
+            socket_timeout=settings.redis_connect_timeout_seconds,
             retry_on_timeout=True,
         )
-        await redis_client.ping()
+        resources.push_async_callback(redis_client.aclose)
         app.state.redis = redis_client
-        logger.info("redis_ready")
 
-        logger.info("application_started")
+        try:
+            await init_db()
+            logger.info("database_ready")
+        except Exception as exc:
+            unavailable.append("database")
+            logger.error(
+                "database_startup_check_failed",
+                error_type=type(exc).__name__,
+                postgres_target=f"{settings.postgres_host}:{settings.postgres_port}",
+            )
 
-    except Exception as e:
-        logger.exception(
-            "application_startup_failed",
-            error_type=type(e).__name__,
-        )
-        raise
+        try:
+            await redis_client.ping()
+            logger.info("redis_ready")
+        except Exception as exc:
+            unavailable.append("redis")
+            logger.error(
+                "redis_startup_check_failed",
+                error_type=type(exc).__name__,
+                redis_target=f"{settings.redis_host}:{settings.redis_port}",
+            )
 
-    # ============================================
-    # ПРИЛОЖЕНИЕ РАБОТАЕТ
-    # ============================================
-    yield
+        app.state.startup_unavailable_dependencies = tuple(unavailable)
 
-    # ============================================
-    # SHUTDOWN: Корректно закрываем все ресурсы
-    # ============================================
-    logger.info("application_shutting_down")
+        if unavailable and settings.startup_require_dependencies:
+            logger.error(
+                "application_startup_failed",
+                unavailable_dependencies=unavailable,
+            )
+            raise RuntimeError(
+                "Required infrastructure is unavailable: " + ", ".join(unavailable)
+            )
 
-    try:
-        if redis_client:
-            await redis_client.close()
-            logger.info("redis_closed")
-    except Exception as e:
-        logger.exception(
-            "redis_close_failed",
-            error_type=type(e).__name__,
-        )
+        if unavailable:
+            logger.warning(
+                "application_started_degraded",
+                unavailable_dependencies=unavailable,
+            )
+        else:
+            logger.info("application_started")
 
-    try:
-        await close_db()
-        logger.info("database_closed")
-    except Exception as e:
-        logger.exception(
-            "database_close_failed",
-            error_type=type(e).__name__,
-        )
+        try:
+            yield
+        finally:
+            logger.info("application_shutting_down")
 
+    redis_client = None
     logger.info("application_stopped")
 
 

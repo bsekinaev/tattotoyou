@@ -68,7 +68,9 @@ python -m pytest tests/unit -v --cov=src/app
 
    Исходящие HTTP-клиенты по умолчанию не наследуют системные `HTTP_PROXY`, `HTTPS_PROXY` и `ALL_PROXY` (`HTTP_TRUST_ENV=false`). Это защищает запуск от случайной или неподдерживаемой proxy-конфигурации операционной системы.
 
-2. Соберите и запустите полный стек с локальными портами:
+2. Выберите режим локального запуска.
+
+   **Полный стек в Docker:**
 
    ```bash
    docker compose \
@@ -77,7 +79,46 @@ python -m pytest tests/unit -v --cov=src/app
      up --build
    ```
 
-   Dev override публикует только loopback-порты: API `8000`, PostgreSQL `5433`, Redis `6380`. Базовый `docker-compose.yml` не публикует PostgreSQL и Redis наружу.
+   **API и Celery в `.venv`, инфраструктура в Docker:**
+
+   ```bash
+   docker compose \
+     -f docker-compose.yml \
+     -f docker-compose.dev.yml \
+     up -d postgres redis
+
+   python scripts/check_infrastructure.py
+   python -m alembic upgrade head
+   ```
+
+   Для этого режима `.env` должен содержать:
+
+   ```env
+   POSTGRES_HOST=localhost
+   POSTGRES_PORT=5433
+   REDIS_HOST=localhost
+   REDIS_PORT=6380
+   ```
+
+   Пароли `POSTGRES_PASSWORD` и `REDIS_PASSWORD` должны совпадать с теми,
+   с которыми запущен Docker Compose. Celery не может стартовать без Redis.
+
+   После успешного preflight:
+
+   ```bash
+   python -m uvicorn app.main:app --reload --reload-dir src \
+     --reload-exclude "**/__pycache__/**" --reload-exclude "*.pyc"
+
+   python -m celery -A app.workers.celery_app:celery_app \
+     worker --loglevel=info --pool=solo
+   ```
+
+   В локальном режиме `STARTUP_REQUIRE_DEPENDENCIES=false`: HTTP-процесс
+   поднимается даже при недоступной инфраструктуре, `/live` возвращает 200,
+   а `/ready` — 503. Docker Compose принудительно включает строгий startup.
+
+   Dev override публикует только loopback-порты: API `8000`, PostgreSQL `5433`,
+   Redis `6380`. Базовый `docker-compose.yml` не публикует PostgreSQL и Redis наружу.
 
    Проверки состояния API:
 
@@ -87,7 +128,14 @@ python -m pytest tests/unit -v --cov=src/app
    GET /health # совместимый alias для /ready
    ```
 
-   Readiness-ответы возвращают только `ok/error` и не раскрывают тексты инфраструктурных исключений.
+   Readiness-ответы возвращают только `ok/error` и не раскрывают тексты
+   инфраструктурных исключений.
+
+   Перед применением Git-патчей или массовой генерацией файлов остановите Uvicorn
+   с `--reload`. Иначе WatchFiles может показать сотни событий delete/add из-за
+   атомарной замены файлов и пересоздания `__pycache__`; это не означает удаление
+   исходников.
+
 
 3. Проверка репозитория:
 

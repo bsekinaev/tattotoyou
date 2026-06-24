@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
     http_trust_env: bool = False
+    startup_require_dependencies: bool = False
 
     # ============================================
     # TELEGRAM (обязательные)
@@ -90,18 +91,20 @@ class Settings(BaseSettings):
     # DATABASE
     # ============================================
     postgres_host: str = "localhost"
-    postgres_port: int = 5432
+    postgres_port: int = 5433
     postgres_db: str = "tattoo_assistant"
     postgres_user: str = "tattoo_user"
     postgres_password: SecretStr = Field(description="Пароль от PostgreSQL")
+    postgres_connect_timeout_seconds: int = Field(default=5, ge=1, le=60)
 
     # ============================================
     # REDIS
     # ============================================
     redis_host: str = "localhost"
-    redis_port: int = 6379
+    redis_port: int = 6380
     redis_db: int = 0
     redis_password: SecretStr | None = None
+    redis_connect_timeout_seconds: int = Field(default=5, ge=1, le=60)
 
     # ============================================
     # SECURITY
