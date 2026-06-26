@@ -1,164 +1,173 @@
-# 🎨 TATTOTOYOU — AI-ассистент для тату-студии
+# TATTOTOYOU — AI-ассистент для тату-студии
 
 [![CI](https://github.com/bsekinaev/tattotoyou/actions/workflows/ci.yml/badge.svg)](https://github.com/bsekinaev/tattotoyou/actions/workflows/ci.yml)
-![Python](https://img.shields.io/badge/Python-3.12-blue.svg)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg)
-![Celery](https://img.shields.io/badge/Celery-5.3+-37B24D.svg)
-![Postgres](https://img.shields.io/badge/PostgreSQL-15-336791.svg)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?logo=postgresql&logoColor=white)
+![Celery](https://img.shields.io/badge/Celery-5.3+-37814A?logo=celery&logoColor=white)
 
-Мультиплатформенный AI-агент, который обрабатывает рутинные диалоги с клиентами, квалифицирует лиды и эскалирует сложные кейсы на мастера. Спроектирован с упором на отказоустойчивость, безопасность и продуктовое мышление.
+Telegram-ассистент для обработки типовых обращений клиентов тату-студии. Сервис принимает webhook-события, определяет сценарий обращения, формирует ответ с помощью GigaChat и передаёт сложные или чувствительные случаи мастеру.
 
-## 🎯 Бизнес-ценность
-- **Экономия времени мастера:** ИИ берет на себя 70%+ типовых вопросов (цены, уход, стили).
-- **Защита от выгорания:** Автоматическая фильтрация спама и нецелевых запросов.
-- **Безопасность (Risk Management):** Жесткие правила эскалации медицинских вопросов (диабет, беременность) и жалоб напрямую к человеку. Исключает юридические и репутационные риски.
+> **Статус:** portfolio MVP в стадии стабилизации надёжности. Основной пользовательский и инфраструктурный контур реализован; Inbox/Outbox и гарантированная исходящая доставка находятся в roadmap.
 
-## 🏗 Архитектура и Key Engineering Decisions
+## Задача проекта
 
-Проект реализован на принципах **Clean Architecture** и **Event-Driven Design**.
+Тату-мастеру регулярно поступают повторяющиеся вопросы о стоимости, стилях, подготовке и уходе. TATTOTOYOU автоматизирует первичную обработку таких обращений, при этом не пытается самостоятельно решать медицинские и конфликтные ситуации.
 
-### 1. Event-Driven Pipeline (FastAPI + Redis + Celery)
-Webhook от Telegram требует ответа `200 OK` за доли секунды. Синхронный вызов LLM (2-5 сек) приводит к таймаутам и спаму ретраями.
-**Решение:** FastAPI выступает в роли Thin Controller (проверка Telegram Secret Token → Rate Limit → Redis-дедупликация → `task.delay()`). Тяжёлая бизнес-логика выполняется в Celery-воркерах с `task_acks_late` и retry/backoff. Полная идемпотентность на уровне PostgreSQL и надёжный outbound delivery находятся в этапе стабилизации.
+Проект демонстрирует:
 
-### 2. Distributed Token Caching
-OAuth-токены GigaChat (TTL ~1 часа) кэшируются в Redis с буфером в 30 минут. Это позволяет горизонтально масштабировать Celery-воркеры в Docker-кластере без лишних запросов к auth-серверу и снижает latency ответа на ~300мс.
+- событийную обработку Telegram webhook'ов;
+- фоновые задачи и взаимодействие с внешним AI API;
+- хранение данных в PostgreSQL;
+- rate limiting, дедупликацию и защиту чувствительных данных;
+- тестирование, контейнеризацию и автоматические проверки.
 
-### 3. Atomic Rate Limiting (Lua + Redis)
-Для защиты бюджета LLM от спамеров реализован Fixed Window Counter на **Lua-скриптах** внутри Redis. Это гарантирует атомарность операций `INCR` + `EXPIRE`, исключая Race Conditions и утечку памяти, свойственные наивным реализациям через Pipeline.
+## Реализовано
 
-### 4. Graceful Degradation & Fallback
-Для недоступности GigaChat предусмотрен `FallbackResponder`. Классификация временных и постоянных ошибок, гарантированное уведомление администратора и отдельный outbound retry будут завершены на этапе Delivery Reliability.
+- приём Telegram webhook-событий через FastAPI;
+- проверка Telegram Secret Token;
+- постановка длительной обработки в Celery через Redis;
+- интеграция с GigaChat по OAuth2;
+- RAG-контекст из базы знаний;
+- keyword-based классификация типовых намерений;
+- эскалация медицинских, токсичных и нестандартных запросов мастеру;
+- Redis rate limiter на Lua-скрипте;
+- маскирование персональных данных перед вызовом внешнего AI API;
+- обязательная TLS-верификация для GigaChat;
+- `/live`, `/ready` и `/health` для проверки состояния сервиса;
+- структурированное логирование;
+- миграции Alembic;
+- Docker Compose и GitHub Actions.
 
-## 🧠 AI & Business Logic
-- **Intent Classification:** Быстрый keyword-based роутинг (с использованием substring-матчинга для покрытия русской морфологии) без траты токенов LLM.
-- **Escalation Engine:** Перехватывает токсичные и медицинские триггеры до вызова LLM.
-- **Context Builder:** Изолирует проверенное имя клиента в отдельном блоке недоверенных метаданных; произвольные строки профиля не добавляются в основной System Prompt.
-- **Admin Notifications:** Асинхронная отправка карточек эскалаций в закрытый Telegram-канал мастера через отдельную Celery-задачу.
+## Архитектура
 
-## 🛠 Стек технологий
-- **Backend:** Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 (Async)
-- **Task Queue:** Celery, Redis (Broker + Cache + Rate Limiter)
-- **Database:** PostgreSQL 15, Alembic (Migrations)
-- **AI:** GigaChat API (OAuth2)
-- **Testing:** pytest, pytest-asyncio, pytest-cov, AsyncMock
-- **CI/CD & Quality:** GitHub Actions, Ruff (Linter + Formatter)
-- **Observability:** structlog (JSON/Console)
+```mermaid
+flowchart LR
+    TG[Telegram] -->|Webhook| API[FastAPI]
+    API --> SEC[Secret token / rate limit / deduplication]
+    SEC --> Q[Redis / Celery queue]
+    Q --> W[Celery worker]
+    W --> DB[(PostgreSQL)]
+    W --> RAG[RAG context]
+    W --> AI[GigaChat API]
+    W --> OUT[Telegram response / escalation]
+```
 
-## 🧪 Тестирование
-Применён **риск-ориентированный подход**: unit-тесты покрывают классификацию, эскалацию, prompt metadata isolation, Admin API authentication, webhook secret handling, TLS, PII-redaction и health endpoints. Интеграционные тесты PostgreSQL/Redis/Celery входят в следующий этап стабилизации.
+Приложение разделено на API-слой, сервисы, репозитории и фоновые задачи. FastAPI выполняет быструю валидацию входящего события и передаёт длительную работу Celery-воркеру.
+
+## Ключевые инженерные решения
+
+### Асинхронная обработка webhook'ов
+
+Вызов внешнего AI API может занимать заметное время. Webhook-обработчик не ожидает генерацию ответа, а ставит задачу в Celery. Это сокращает время удержания HTTP-соединения и отделяет транспортный слой от бизнес-логики.
+
+### Rate limiting до очереди
+
+Ограничение частоты применяется до `task.delay()`. Счётчик реализован через Lua в Redis, поэтому изменение значения и установка TTL выполняются атомарно.
+
+### Работа с чувствительными данными
+
+Перед передачей текста внешнему AI-провайдеру выполняется маскирование персональных данных. Непроверенные данные профиля изолируются от системных инструкций.
+
+### Отказоустойчивость внешней интеграции
+
+Для временных ошибок предусмотрены retry/backoff и fallback-ответ. Полная идемпотентность на PostgreSQL и гарантированная исходящая доставка развиваются отдельно и явно отмечены в roadmap.
+
+## Технологический стек
+
+| Область | Технологии |
+|---|---|
+| Backend | Python 3.12, FastAPI, Pydantic v2 |
+| Database | PostgreSQL 15, SQLAlchemy 2.0 async, Alembic |
+| Queue / cache | Celery, Redis |
+| AI | GigaChat API, OAuth2, RAG |
+| HTTP | httpx |
+| Tests | pytest, pytest-asyncio, pytest-cov |
+| Quality | Ruff, GitHub Actions |
+| Infrastructure | Docker, Docker Compose |
+| Logging | structlog |
+
+## Быстрый запуск
+
+### 1. Подготовка конфигурации
 
 ```bash
-# Запуск unit-тестов с проверкой покрытия
+cp .env.example .env
+```
+
+Заполните обязательные переменные для PostgreSQL, Redis, Telegram, GigaChat и Admin API. Секреты и сертификаты не должны попадать в репозиторий.
+
+### 2. Запуск полного стека
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.dev.yml \
+  up --build
+```
+
+### 3. Миграции
+
+```bash
+python -m alembic upgrade head
+```
+
+### 4. Локальный запуск API и worker
+
+```bash
+python -m uvicorn app.main:app --reload --reload-dir src
+```
+
+```bash
+python -m celery -A app.workers.celery_app:celery_app worker --loglevel=info --pool=solo
+```
+
+`--pool=solo` используется для локального запуска на Windows. В Linux можно использовать стандартный prefork pool.
+
+## Проверка состояния
+
+```text
+GET /live   # процесс приложения работает
+GET /ready  # PostgreSQL и Redis доступны
+GET /health # совместимый alias для /ready
+```
+
+Readiness-ответ не раскрывает внутренние тексты инфраструктурных исключений.
+
+## Тестирование
+
+```bash
 python -m pytest tests/unit -v --cov=src/app
 ```
 
-Конкурентные инварианты репозиториев проверяются на реальном PostgreSQL после
-применения миграций. Тест использует уникальные данные и удаляет их после запуска:
+Unit-тесты проверяют классификацию запросов, эскалацию, изоляцию prompt metadata, аутентификацию Admin API, webhook secret, TLS, PII-redaction и health endpoints.
 
-```powershell
-$env:TEST_POSTGRES_DSN = python -c "from app.core.config import get_settings; print(get_settings().postgres_dsn)"
-python -m pytest tests/integration/test_repository_concurrency.py -v
-Remove-Item Env:TEST_POSTGRES_DSN
-```
+Интеграционные проверки PostgreSQL и конкурентных инвариантов запускаются отдельно на реальной тестовой базе.
 
-## 🚀 Локальный запуск
+## Безопасность
 
-1. Создайте локальную конфигурацию и замените все placeholder-секреты:
+- Telegram Secret Token проверяется до обработки события;
+- Admin API принимает ключ через заголовок `X-Admin-Key`;
+- TLS-проверка внешнего AI API не отключается;
+- сертификаты и секреты не коммитятся;
+- базовый Docker Compose не публикует PostgreSQL и Redis наружу;
+- исходящие HTTP-клиенты не наследуют случайную системную proxy-конфигурацию по умолчанию.
 
-   ```bash
-   cp .env.example .env
-   ```
+## Ограничения и roadmap
 
-   `ADMIN_API_KEY`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, Telegram и GigaChat credentials обязательны. Admin API принимает ключ только через заголовок `X-Admin-Key`.
+- [x] Telegram webhook и Celery pipeline
+- [x] PostgreSQL, Redis и Alembic
+- [x] GigaChat и RAG
+- [x] rate limiting и PII-redaction
+- [x] health endpoints и CI
+- [ ] PostgreSQL Inbox/Outbox
+- [ ] гарантированная исходящая доставка и отдельный outbound retry
+- [ ] административный интерфейс оператора
+- [ ] расширенные интеграционные и нагрузочные тесты
+- [ ] метрики и dashboard observability
 
-   GigaChat использует обязательную TLS-верификацию. Установите корневой сертификат НУЦ Минцифры в системное хранилище или укажите путь к PEM-файлу через `GIGACHAT_CA_BUNDLE`. Отключение проверки сертификатов в коде не поддерживается.
-   Для Docker путь должен существовать внутри контейнера: смонтируйте PEM-файл read-only и задайте, например, `GIGACHAT_CA_BUNDLE=/run/secrets/gigachat-ca.pem`. Сам сертификат и приватные секреты не коммитятся в репозиторий.
+## Автор
 
-   Исходящие HTTP-клиенты по умолчанию не наследуют системные `HTTP_PROXY`, `HTTPS_PROXY` и `ALL_PROXY` (`HTTP_TRUST_ENV=false`). Это защищает запуск от случайной или неподдерживаемой proxy-конфигурации операционной системы.
+**Батраз Секинаев** — Python Backend Developer
 
-2. Выберите режим локального запуска.
-
-   **Полный стек в Docker:**
-
-   ```bash
-   docker compose \
-     -f docker-compose.yml \
-     -f docker-compose.dev.yml \
-     up --build
-   ```
-
-   **API и Celery в `.venv`, инфраструктура в Docker:**
-
-   ```bash
-   docker compose \
-     -f docker-compose.yml \
-     -f docker-compose.dev.yml \
-     up -d postgres redis
-
-   python scripts/check_infrastructure.py
-   python -m alembic upgrade head
-   ```
-
-   Для этого режима `.env` должен содержать:
-
-   ```env
-   POSTGRES_HOST=localhost
-   POSTGRES_PORT=5433
-   REDIS_HOST=localhost
-   REDIS_PORT=6380
-   ```
-
-   Пароли `POSTGRES_PASSWORD` и `REDIS_PASSWORD` должны совпадать с теми,
-   с которыми запущен Docker Compose. Celery не может стартовать без Redis.
-
-   После успешного preflight:
-
-   ```bash
-   python -m uvicorn app.main:app --reload --reload-dir src \
-     --reload-exclude "**/__pycache__/**" --reload-exclude "*.pyc"
-
-   python -m celery -A app.workers.celery_app:celery_app \
-     worker --loglevel=info --pool=solo
-   ```
-
-   В локальном режиме `STARTUP_REQUIRE_DEPENDENCIES=false`: HTTP-процесс
-   поднимается даже при недоступной инфраструктуре, `/live` возвращает 200,
-   а `/ready` — 503. Docker Compose принудительно включает строгий startup.
-
-   Dev override публикует только loopback-порты: API `8000`, PostgreSQL `5433`,
-   Redis `6380`. Базовый `docker-compose.yml` не публикует PostgreSQL и Redis наружу.
-
-   Проверки состояния API:
-
-   ```text
-   GET /live   # процесс приложения работает
-   GET /ready  # PostgreSQL и Redis доступны
-   GET /health # совместимый alias для /ready
-   ```
-
-   Readiness-ответы возвращают только `ok/error` и не раскрывают тексты
-   инфраструктурных исключений.
-
-   Перед применением Git-патчей или массовой генерацией файлов остановите Uvicorn
-   с `--reload`. Иначе WatchFiles может показать сотни событий delete/add из-за
-   атомарной замены файлов и пересоздания `__pycache__`; это не означает удаление
-   исходников.
-
-
-3. Проверка репозитория:
-
-   ```bash
-   python scripts/validate_repository.py
-   ```
-
-   До появления `uv.lock` установите зависимости явно:
-
-   ```bash
-   uv sync --extra dev --extra rag
-   ```
-
-## 👨‍💻 Автор
-**Батраз Секинаев**  
-Python Backend Developer  
-[GitHub](https://github.com/bsekinaev) | [Telegram](https://t.me/bsekinaev)
+[GitHub](https://github.com/bsekinaev) · [Telegram](https://t.me/bsekinaev)
