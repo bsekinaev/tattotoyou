@@ -1,5 +1,6 @@
 from app.domain.clients.models import Client
 from app.domain.conversations.models import Message
+from app.services.ai.privacy import minimize_external_ai_text
 
 SYSTEM_PROMPT = """
 # РОЛЬ И ИДЕНТИЧНОСТЬ
@@ -80,7 +81,7 @@ class PromptBuilder:
 
         for msg in messages:
             role = "user" if msg.direction == "inbound" else "assistant"
-            history.append({"role": role, "content": msg.content})
+            history.append({"role": role, "content": minimize_external_ai_text(msg.content)})
 
         return history
 
@@ -97,9 +98,9 @@ class PromptBuilder:
         if faq_items:
             faq_context = "\n\n# 📚 БАЗА ЗНАНИЙ СТУДИИ (Используй ТОЛЬКО эти факты)\n"
             for faq in faq_items:
-                faq_context += (
-                    f"\nВопрос клиента: {faq['question']}\nТвой эталонный ответ: {faq['answer']}\n"
-                )
+                question = minimize_external_ai_text(str(faq["question"]))
+                answer = minimize_external_ai_text(str(faq["answer"]))
+                faq_context += f"\nВопрос клиента: {question}\nТвой эталонный ответ: {answer}\n"
 
             faq_context += (
                 "\n# ИНСТРУКЦИЯ ПО ИСПОЛЬЗОВАНИЮ БЗ\n"

@@ -28,11 +28,11 @@ Telegram-ассистент для обработки типовых обращ�
 - проверка Telegram Secret Token;
 - постановка длительной обработки в Celery через Redis;
 - интеграция с GigaChat по OAuth2;
-- RAG-контекст из базы знаний;
+- основа базы знаний и pgvector; подключение RAG к активному pipeline находится в roadmap;
 - keyword-based классификация типовых намерений;
 - эскалация медицинских, токсичных и нестандартных запросов мастеру;
 - Redis rate limiter на Lua-скрипте;
-- маскирование персональных данных перед вызовом внешнего AI API;
+- маскирование телефонов и email перед вызовом внешнего AI API;
 - обязательная TLS-верификация для GigaChat;
 - `/live`, `/ready` и `/health` для проверки состояния сервиса;
 - структурированное логирование;
@@ -48,7 +48,7 @@ flowchart LR
     SEC --> Q[Redis / Celery queue]
     Q --> W[Celery worker]
     W --> DB[(PostgreSQL)]
-    W --> RAG[RAG context]
+    W -.-> RAG[Knowledge/RAG foundation]
     W --> AI[GigaChat API]
     W --> OUT[Telegram response / escalation]
 ```
@@ -67,11 +67,11 @@ flowchart LR
 
 ### Работа с чувствительными данными
 
-Перед передачей текста внешнему AI-провайдеру выполняется маскирование персональных данных. Непроверенные данные профиля изолируются от системных инструкций.
+Перед передачей истории внешнему AI-провайдеру телефоны и email заменяются безопасными маркерами. Оригинальный текст остаётся в собственной PostgreSQL. Непроверенные данные профиля изолируются от системных инструкций.
 
 ### Отказоустойчивость внешней интеграции
 
-Для временных ошибок предусмотрены retry/backoff и fallback-ответ. Полная идемпотентность на PostgreSQL и гарантированная исходящая доставка развиваются отдельно и явно отмечены в roadmap.
+Celery поддерживает повтор задач, а GigaChat имеет безопасный fallback-ответ. Классификация временных ошибок внешнего API, полная идемпотентность на PostgreSQL и гарантированная исходящая доставка развиваются отдельно и явно отмечены в roadmap.
 
 ## Технологический стек
 
@@ -80,7 +80,7 @@ flowchart LR
 | Backend | Python 3.12, FastAPI, Pydantic v2 |
 | Database | PostgreSQL 15, SQLAlchemy 2.0 async, Alembic |
 | Queue / cache | Celery, Redis |
-| AI | GigaChat API, OAuth2, RAG |
+| AI | GigaChat API, OAuth2, pgvector/RAG foundation |
 | HTTP | httpx |
 | Tests | pytest, pytest-asyncio, pytest-cov |
 | Quality | Ruff, GitHub Actions |
@@ -95,7 +95,7 @@ flowchart LR
 cp .env.example .env
 ```
 
-Заполните обязательные переменные для PostgreSQL, Redis, Telegram, GigaChat и Admin API. Секреты и сертификаты не должны попадать в репозиторий.
+Заполните обязательные переменные для PostgreSQL, Redis, Telegram, GigaChat и Admin API. Секреты и сертификаты не должны попадать в репозиторий. Безопасно проверить заполнение можно командой `python scripts/check_configuration.py`; значения секретов она не выводит.
 
 ### 2. Запуск полного стека
 
@@ -140,13 +140,14 @@ Readiness-ответ не раскрывает внутренние тексты
 python -m pytest tests/unit -v --cov=src/app
 ```
 
-Unit-тесты проверяют классификацию запросов, эскалацию, изоляцию prompt metadata, аутентификацию Admin API, webhook secret, TLS, PII-redaction и health endpoints.
+Unit-тесты проверяют классификацию запросов, эскалацию, изоляцию prompt metadata, аутентификацию Admin API, webhook secret, ограничение тела webhook до JSON-парсинга, TLS, минимизацию PII и health endpoints.
 
 Интеграционные проверки PostgreSQL и конкурентных инвариантов запускаются отдельно на реальной тестовой базе.
 
 ## Безопасность
 
-- Telegram Secret Token проверяется до обработки события;
+- тело Telegram webhook ограничивается до JSON/Pydantic-парсинга;
+- Telegram Secret Token проверяется до бизнес-обработки события;
 - Admin API принимает ключ через заголовок `X-Admin-Key`;
 - TLS-проверка внешнего AI API не отключается;
 - сертификаты и секреты не коммитятся;
@@ -157,7 +158,8 @@ Unit-тесты проверяют классификацию запросов, 
 
 - [x] Telegram webhook и Celery pipeline
 - [x] PostgreSQL, Redis и Alembic
-- [x] GigaChat и RAG
+- [x] GigaChat OAuth2 и pgvector foundation
+- [ ] подключение RAG к активному pipeline и lifecycle embeddings
 - [x] rate limiting и PII-redaction
 - [x] health endpoints и CI
 - [ ] PostgreSQL Inbox/Outbox

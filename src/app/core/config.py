@@ -45,6 +45,12 @@ class Settings(BaseSettings):
         description="Секрет для верификации webhook'ов Telegram"
     )
     telegram_admin_chat_id: int = Field(description="Chat ID Софии для уведомлений об эскалациях")
+    telegram_webhook_max_body_bytes: int = Field(
+        default=256 * 1024,
+        ge=1024,
+        le=10 * 1024 * 1024,
+        description="Максимальный размер тела Telegram webhook до JSON-парсинга",
+    )
 
     # ============================================
     # VK (опционально для MVP)

@@ -32,6 +32,7 @@ def test_local_infrastructure_defaults_match_development_compose() -> None:
     assert settings.startup_require_dependencies is False
     assert settings.postgres_connect_timeout_seconds == 5
     assert settings.redis_connect_timeout_seconds == 5
+    assert settings.telegram_webhook_max_body_bytes == 256 * 1024
 
 
 @pytest.mark.asyncio
