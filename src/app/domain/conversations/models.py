@@ -79,6 +79,15 @@ class Message(Base):
     """
 
     __tablename__ = "messages"
+    __table_args__ = (
+        Index(
+            "uq_messages_causation_direction",
+            "causation_event_id",
+            "direction",
+            unique=True,
+            postgresql_where=text("causation_event_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     conversation_id: Mapped[uuid.UUID] = mapped_column(
@@ -97,6 +106,14 @@ class Message(Base):
         nullable=True,
         index=True,
         comment="ID сообщения в самой платформе (например, в Telegram)",
+    )
+
+    causation_event_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("incoming_events.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+        comment="Входящее событие, которое вызвало это сообщение",
     )
 
     ai_model: Mapped[str | None] = mapped_column(String(50), nullable=True)

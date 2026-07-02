@@ -2,7 +2,8 @@
 Главная точка входа в приложение.
 Production-ready FastAPI application с:
 - Graceful startup/shutdown (lifespan)
-- Redis для кэширования и дедупликации
+- Redis для rate limiting и Celery
+- PostgreSQL Inbox для дедупликации входящих событий
 - Health checks с реальной проверкой зависимостей
 - Request ID middleware для трейсинга
 """
