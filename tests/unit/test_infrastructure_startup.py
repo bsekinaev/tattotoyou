@@ -33,6 +33,11 @@ def test_local_infrastructure_defaults_match_development_compose() -> None:
     assert settings.postgres_connect_timeout_seconds == 5
     assert settings.redis_connect_timeout_seconds == 5
     assert settings.telegram_webhook_max_body_bytes == 256 * 1024
+    assert settings.incoming_event_max_attempts == 5
+    assert settings.incoming_event_retry_base_seconds == 5
+    assert settings.incoming_event_processing_timeout_seconds == 300
+    assert settings.incoming_event_recovery_interval_seconds == 60
+    assert settings.incoming_event_recovery_batch_size == 100
 
 
 @pytest.mark.asyncio
@@ -119,3 +124,13 @@ async def test_strict_startup_fails_when_required_dependencies_are_down(
 
     redis_client.aclose.assert_awaited_once()
     close_db.assert_awaited_once()
+
+
+def test_compose_runs_celery_beat_for_inbox_recovery() -> None:
+    from pathlib import Path
+
+    compose = Path("docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "  beat:" in compose
+    assert "celery -A app.workers.celery_app beat" in compose
+    assert "--schedule=/tmp/celerybeat-schedule" in compose

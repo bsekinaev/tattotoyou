@@ -107,6 +107,16 @@ services:
       redis:
         condition: service_healthy
 
+  beat:
+    <<: *app-service
+    command: celery -A app.workers.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:

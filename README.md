@@ -8,7 +8,7 @@
 
 Telegram-ассистент для обработки типовых обращений клиентов тату-студии. Сервис принимает webhook-события, определяет сценарий обращения, формирует ответ с помощью GigaChat и передаёт сложные или чувствительные случаи мастеру.
 
-> **Статус:** portfolio MVP в стадии стабилизации надёжности. Основной пользовательский и инфраструктурный контур реализован; Inbox/Outbox и гарантированная исходящая доставка находятся в roadmap.
+> **Статус:** portfolio MVP в стадии стабилизации надёжности. PostgreSQL Inbox и идемпотентная обработка входящих событий реализованы; Transactional Outbox и гарантированная исходящая доставка остаются в roadmap.
 
 ## Задача проекта
 
@@ -26,7 +26,8 @@ Telegram-ассистент для обработки типовых обращ�
 
 - приём Telegram webhook-событий через FastAPI;
 - проверка Telegram Secret Token;
-- постановка длительной обработки в Celery через Redis;
+- долговечная фиксация входящих событий в PostgreSQL до постановки в Celery;
+- идемпотентная обработка повторных Telegram update и recovery зависших событий;
 - интеграция с GigaChat по OAuth2;
 - основа базы знаний и pgvector; подключение RAG к активному pipeline находится в roadmap;
 - keyword-based классификация типовых намерений;
@@ -44,16 +45,19 @@ Telegram-ассистент для обработки типовых обращ�
 ```mermaid
 flowchart LR
     TG[Telegram] -->|Webhook| API[FastAPI]
-    API --> SEC[Secret token / rate limit / deduplication]
-    SEC --> Q[Redis / Celery queue]
+    API --> SEC[Secret token / rate limit]
+    SEC --> INBOX[(PostgreSQL Inbox)]
+    INBOX --> Q[Redis / Celery queue]
+    BEAT[Celery Beat recovery] --> INBOX
+    BEAT --> Q
     Q --> W[Celery worker]
-    W --> DB[(PostgreSQL)]
+    W --> DB[(Clients / conversations / messages)]
     W -.-> RAG[Knowledge/RAG foundation]
     W --> AI[GigaChat API]
     W --> OUT[Telegram response / escalation]
 ```
 
-Приложение разделено на API-слой, сервисы, репозитории и фоновые задачи. FastAPI выполняет быструю валидацию входящего события и передаёт длительную работу Celery-воркеру.
+Приложение разделено на API-слой, сервисы, репозитории и фоновые задачи. FastAPI валидирует событие, атомарно сохраняет его в PostgreSQL Inbox и только после commit пытается передать UUID события Celery-воркеру. Ошибка брокера не теряет update: Celery Beat повторно ставит pending/retrying и зависшие processing-события в очередь.
 
 ## Ключевые инженерные решения
 
@@ -64,6 +68,12 @@ flowchart LR
 ### Rate limiting до очереди
 
 Ограничение частоты применяется до `task.delay()`. Счётчик реализован через Lua в Redis, поэтому изменение значения и установка TTL выполняются атомарно.
+
+### PostgreSQL Inbox и идемпотентность
+
+Пара `(platform, external_event_id)` уникальна, поэтому повторная доставка Telegram update возвращает существующее событие. Воркер захватывает событие через `FOR UPDATE SKIP LOCKED`, увеличивает счётчик попыток и переводит его в `processing`. Ошибки переводят событие в `retrying` с exponential backoff, а превышение лимита — в `failed`.
+
+Каждый Inbox event может породить максимум одно входящее и одно исходящее сообщение благодаря частичному уникальному индексу `(causation_event_id, direction)`. Это устраняет повторную запись бизнес-ответа при повторном запуске Celery-задачи. Гарантия фактической доставки в Telegram будет реализована отдельным Transactional Outbox.
 
 ### Работа с чувствительными данными
 
@@ -122,7 +132,13 @@ python -m uvicorn app.main:app --reload --reload-dir src
 python -m celery -A app.workers.celery_app:celery_app worker --loglevel=info --pool=solo
 ```
 
-`--pool=solo` используется для локального запуска на Windows. В Linux можно использовать стандартный prefork pool.
+В отдельном терминале запустите recovery-планировщик:
+
+```bash
+python -m celery -A app.workers.celery_app:celery_app beat --loglevel=info
+```
+
+`--pool=solo` используется для локального запуска worker на Windows. В Linux можно использовать стандартный prefork pool.
 
 ## Проверка состояния
 
@@ -140,7 +156,7 @@ Readiness-ответ не раскрывает внутренние тексты
 python -m pytest tests/unit -v --cov=src/app
 ```
 
-Unit-тесты проверяют классификацию запросов, эскалацию, изоляцию prompt metadata, аутентификацию Admin API, webhook secret, ограничение тела webhook до JSON-парсинга, TLS, минимизацию PII и health endpoints.
+Unit-тесты проверяют классификацию запросов, эскалацию, изоляцию prompt metadata, аутентификацию Admin API, webhook secret, ограничение тела webhook до JSON-парсинга, TLS, минимизацию PII, PostgreSQL Inbox и health endpoints.
 
 Интеграционные проверки PostgreSQL и конкурентных инвариантов запускаются отдельно на реальной тестовой базе.
 
@@ -162,8 +178,8 @@ Unit-тесты проверяют классификацию запросов, 
 - [ ] подключение RAG к активному pipeline и lifecycle embeddings
 - [x] rate limiting и PII-redaction
 - [x] health endpoints и CI
-- [ ] PostgreSQL Inbox/Outbox
-- [ ] гарантированная исходящая доставка и отдельный outbound retry
+- [x] PostgreSQL Inbox и идемпотентная обработка входящих событий
+- [ ] Transactional Outbox, гарантированная исходящая доставка и outbound retry
 - [ ] административный интерфейс оператора
 - [ ] расширенные интеграционные и нагрузочные тесты
 - [ ] метрики и dashboard observability

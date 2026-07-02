@@ -1,5 +1,6 @@
 from app.infrastructure.db.repositories.client_repository import ClientRepository
 from app.infrastructure.db.repositories.conversation_repository import ConversationRepository
+from app.infrastructure.db.repositories.incoming_event_repository import IncomingEventRepository
 from app.infrastructure.db.repositories.knowledge_repository import KnowledgeBaseRepository
 from app.infrastructure.db.repositories.message_repository import MessageRepository
 from app.infrastructure.db.repositories.platform_repository import PlatformRepository
@@ -11,5 +12,6 @@ __all__ = [
     "ClientRepository",
     "ConversationRepository",
     "MessageRepository",
+    "IncomingEventRepository",
     "KnowledgeBaseRepository",
 ]

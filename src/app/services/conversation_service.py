@@ -5,10 +5,16 @@ Conversation Service — ядро бизнес-логики.
 Это позволяет использовать одну и ту же логику для Telegram, VK, Instagram.
 """
 
+from __future__ import annotations
+
+import uuid
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.core.platforms.base import PlatformAdapter, PlatformMessage
+from app.domain.clients.models import Client
+from app.domain.conversations.models import Conversation
 from app.infrastructure.db.repositories import (
     ClientRepository,
     ConversationRepository,
@@ -50,16 +56,17 @@ class ConversationService:
         self.platform_adapter = platform_adapter
         self.ai_client = ai_client
 
-    async def process_message(self, message: PlatformMessage) -> None:
-        """
-        Обработать входящее сообщение от любой платформы.
+    async def process_message(
+        self,
+        message: PlatformMessage,
+        *,
+        causation_event_id: uuid.UUID | None = None,
+    ) -> None:
+        """Обработать входящее сообщение от любой платформы.
 
-        Flow:
-        1. Сохранить сообщение в БД
-        2. Классифицировать intent
-        3. Проверить escalation rules
-        4. Сгенерировать ответ (LLM или escalation)
-        5. Отправить ответ через PlatformAdapter
+        ``causation_event_id`` связывает входящее событие с единственным
+        inbound и outbound сообщением. Повторный запуск Celery-задачи не
+        создаёт второй бизнес-ответ в PostgreSQL.
         """
         if not message.text:
             return
@@ -69,38 +76,32 @@ class ConversationService:
             platform=message.platform,
             chat_id=message.chat_id,
             user_id=message.user.external_id,
+            causation_event_id=str(causation_event_id) if causation_event_id else None,
         )
 
-        # 1. Persistence: сохраняем в БД
-        platform = await self.platform_repo.get_or_create(
-            name=message.platform,
-            webhook_secret="",  # webhook_secret хранится в adapter
+        if causation_event_id is not None:
+            existing_outbound = await self.message_repo.get_by_causation(
+                causation_event_id,
+                "outbound",
+            )
+            if existing_outbound is not None:
+                logger.info(
+                    "incoming_event_business_effect_already_exists",
+                    causation_event_id=str(causation_event_id),
+                    outbound_message_id=existing_outbound.id,
+                )
+                return
+
+        client, conversation = await self._resolve_conversation(
+            message,
+            causation_event_id=causation_event_id,
         )
 
-        client = await self.client_repo.get_or_create(
-            platform_id=platform.id,
-            external_id=message.user.external_id,
-            display_name=message.user.display_name or "Гость",
-            username=message.user.username,
-        )
-
-        conversation = await self.conversation_repo.get_or_create_active(client_id=client.id)
-        await self.conversation_repo.update_activity(conversation)
-
-        # Сохраняем inbound message
-        await self.message_repo.create_message(
-            conversation_id=conversation.id,
-            direction="inbound",
-            content=message.text,
-            platform_message_id=message.message_id,
-        )
-        await self.db.commit()
-
-        # 2. Intent Classification
+        # Intent Classification
         intent = IntentClassifier.classify(message.text)
         should_escalate, reason = EscalationEngine.should_escalate(intent, message.text)
 
-        # 3. Routing: Escalation vs AI
+        # Routing: Escalation vs AI
         if should_escalate:
             logger.warning(
                 "escalation_triggered",
@@ -111,17 +112,7 @@ class ConversationService:
             reply_text = (
                 "Отличный вопрос! Передам его Софии — она лично ответит в течение 15 минут 💛"
             )
-
-            # Уведомляем админа через Celery (async)
-            send_admin_notification_task.delay(
-                client_name=client.display_name or "Гость",
-                client_username=client.username,
-                reason=reason,
-                last_message=message.text,
-                chat_id=int(message.chat_id),  # Celery требует serializable types
-            )
         else:
-            # AI Flow: собираем контекст и запрашиваем LLM
             history_msgs = await self.message_repo.get_history(
                 conversation.id,
                 limit=10,
@@ -136,24 +127,109 @@ class ConversationService:
             )
             reply_text = await self.ai_client.generate_response(ai_history)
 
-        # 4. Сохраняем outbound message
-        await self.message_repo.create_message(
-            conversation_id=conversation.id,
-            direction="outbound",
-            content=reply_text,
-            is_escalation_trigger=should_escalate,
-        )
+        outbound_created = True
+        if causation_event_id is None:
+            await self.message_repo.create_message(
+                conversation_id=conversation.id,
+                direction="outbound",
+                content=reply_text,
+                is_escalation_trigger=should_escalate,
+            )
+        else:
+            _, outbound_created = await self.message_repo.create_message_once(
+                conversation_id=conversation.id,
+                direction="outbound",
+                content=reply_text,
+                causation_event_id=causation_event_id,
+                is_escalation_trigger=should_escalate,
+            )
         await self.db.commit()
 
-        # 5. Отправляем ответ через PlatformAdapter
+        if not outbound_created:
+            logger.info(
+                "duplicate_outbound_effect_suppressed",
+                causation_event_id=str(causation_event_id),
+            )
+            return
+
+        if should_escalate:
+            try:
+                send_admin_notification_task.delay(
+                    client_name=client.display_name or "Гость",
+                    client_username=client.username,
+                    reason=reason,
+                    last_message=message.text,
+                    chat_id=int(message.chat_id),
+                )
+            except Exception as exc:
+                logger.exception(
+                    "admin_notification_dispatch_failed",
+                    chat_id=message.chat_id,
+                    error_type=type(exc).__name__,
+                )
+
         try:
             await self.platform_adapter.send_message(message.chat_id, reply_text)
             logger.info("reply_sent", chat_id=message.chat_id, platform=message.platform)
-        except Exception as e:
-            # Логируем, но не падаем — сообщение уже сохранено в БД
+        except Exception as exc:
+            # Надёжная доставка будет вынесена в Transactional Outbox.
             logger.exception(
                 "failed_to_send_reply",
                 chat_id=message.chat_id,
                 platform=message.platform,
-                error_type=type(e).__name__,
+                error_type=type(exc).__name__,
             )
+
+    async def _resolve_conversation(
+        self,
+        message: PlatformMessage,
+        *,
+        causation_event_id: uuid.UUID | None,
+    ) -> tuple[Client, Conversation]:
+        """Найти контекст повтора или создать новый inbound-эффект."""
+        if causation_event_id is not None:
+            existing_inbound = await self.message_repo.get_by_causation(
+                causation_event_id,
+                "inbound",
+            )
+            if existing_inbound is not None:
+                conversation = await self.conversation_repo.get_by_id(
+                    existing_inbound.conversation_id
+                )
+                if conversation is None:
+                    raise RuntimeError("Causation conversation does not exist")
+                client = await self.client_repo.get_by_id(conversation.client_id)
+                if client is None:
+                    raise RuntimeError("Causation client does not exist")
+                return client, conversation
+
+        platform = await self.platform_repo.get_or_create(
+            name=message.platform,
+            webhook_secret="",
+        )
+        client = await self.client_repo.get_or_create(
+            platform_id=platform.id,
+            external_id=message.user.external_id,
+            display_name=message.user.display_name or "Гость",
+            username=message.user.username,
+        )
+        conversation = await self.conversation_repo.get_or_create_active(client_id=client.id)
+        await self.conversation_repo.update_activity(conversation)
+
+        if causation_event_id is None:
+            await self.message_repo.create_message(
+                conversation_id=conversation.id,
+                direction="inbound",
+                content=message.text or "",
+                platform_message_id=message.message_id,
+            )
+        else:
+            await self.message_repo.create_message_once(
+                conversation_id=conversation.id,
+                direction="inbound",
+                content=message.text or "",
+                platform_message_id=message.message_id,
+                causation_event_id=causation_event_id,
+            )
+        await self.db.commit()
+        return client, conversation

@@ -96,6 +96,15 @@ class Settings(BaseSettings):
     redis_connect_timeout_seconds: int = Field(default=5, ge=1, le=60)
 
     # ============================================
+    # INCOMING EVENT INBOX
+    # ============================================
+    incoming_event_max_attempts: int = Field(default=5, ge=1, le=100)
+    incoming_event_retry_base_seconds: int = Field(default=5, ge=1, le=3600)
+    incoming_event_processing_timeout_seconds: int = Field(default=300, ge=30, le=86400)
+    incoming_event_recovery_interval_seconds: int = Field(default=60, ge=10, le=3600)
+    incoming_event_recovery_batch_size: int = Field(default=100, ge=1, le=1000)
+
+    # ============================================
     # SECURITY
     # ============================================
     secret_key: SecretStr = Field(description="Секретный ключ для HMAC")
