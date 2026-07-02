@@ -23,6 +23,7 @@ from app.api.admin.knowledge import router as admin_knowledge_router
 from app.api.webhooks.telegram import router as telegram_router
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
+from app.core.middleware import RequestBodyLimitMiddleware
 from app.infrastructure.db.session import async_engine, close_db, init_db
 
 # Инициализируем логирование ПЕРВЫМ ДЕЛОМ
@@ -135,6 +136,12 @@ def create_app() -> FastAPI:
     # ============================================
     # MIDDLEWARE
     # ============================================
+
+    app.add_middleware(
+        RequestBodyLimitMiddleware,
+        max_body_bytes=settings.telegram_webhook_max_body_bytes,
+        paths=("/webhook/telegram",),
+    )
 
     @app.middleware("http")
     async def add_request_id(request: Request, call_next):
