@@ -8,7 +8,7 @@
 
 Telegram-ассистент для обработки типовых обращений клиентов тату-студии. Сервис принимает webhook-события, определяет сценарий обращения, формирует ответ с помощью GigaChat и передаёт сложные или чувствительные случаи мастеру.
 
-> **Статус:** portfolio MVP в стадии стабилизации надёжности. PostgreSQL Inbox и идемпотентная обработка входящих событий реализованы; Transactional Outbox и гарантированная исходящая доставка остаются в roadmap.
+> **Статус:** portfolio MVP в стадии стабилизации надёжности. PostgreSQL Inbox, Transactional Outbox, повтор исходящей доставки и backend-state machine передачи диалога человеку реализованы. Полноценный интерфейс оператора и production hardening внешнего AI остаются в roadmap.
 
 ## Задача проекта
 
@@ -28,6 +28,8 @@ Telegram-ассистент для обработки типовых обращ�
 - проверка Telegram Secret Token;
 - долговечная фиксация входящих событий в PostgreSQL до постановки в Celery;
 - идемпотентная обработка повторных Telegram update и recovery зависших событий;
+- Transactional Outbox для исходящих сообщений, повтор доставки и ручной replay failed-записей;
+- handoff-состояния диалога `active`, `escalated`, `human_owned`, `closed`;
 - интеграция с GigaChat по OAuth2;
 - основа базы знаний и pgvector; подключение RAG к активному pipeline находится в roadmap;
 - keyword-based классификация типовых намерений;
@@ -54,10 +56,13 @@ flowchart LR
     W --> DB[(Clients / conversations / messages)]
     W -.-> RAG[Knowledge/RAG foundation]
     W --> AI[GigaChat API]
-    W --> OUT[Telegram response / escalation]
+    W --> OUTBOX[(PostgreSQL Outbox)]
+    BEAT --> OUTBOX
+    OUTBOX --> SENDER[Celery delivery worker]
+    SENDER --> OUT[Telegram response]
 ```
 
-Приложение разделено на API-слой, сервисы, репозитории и фоновые задачи. FastAPI валидирует событие, атомарно сохраняет его в PostgreSQL Inbox и только после commit пытается передать UUID события Celery-воркеру. Ошибка брокера не теряет update: Celery Beat повторно ставит pending/retrying и зависшие processing-события в очередь.
+Приложение разделено на API-слой, сервисы, репозитории и фоновые задачи. FastAPI валидирует событие, атомарно сохраняет его в PostgreSQL Inbox и только после commit пытается передать UUID события Celery-воркеру. Бизнес-ответ и запись `outbound_deliveries` сохраняются в одной транзакции; отдельный delivery worker отправляет сообщение в Telegram. Ошибка брокера или временная ошибка Telegram не теряет работу: Celery Beat повторно ставит готовые Inbox- и Outbox-записи в очередь.
 
 ## Ключевые инженерные решения
 
@@ -73,7 +78,17 @@ flowchart LR
 
 Пара `(platform, external_event_id)` уникальна, поэтому повторная доставка Telegram update возвращает существующее событие. Воркер захватывает событие через `FOR UPDATE SKIP LOCKED`, увеличивает счётчик попыток и переводит его в `processing`. Ошибки переводят событие в `retrying` с exponential backoff, а превышение лимита — в `failed`.
 
-Каждый Inbox event может породить максимум одно входящее и одно исходящее сообщение благодаря частичному уникальному индексу `(causation_event_id, direction)`. Это устраняет повторную запись бизнес-ответа при повторном запуске Celery-задачи. Гарантия фактической доставки в Telegram будет реализована отдельным Transactional Outbox.
+Каждый Inbox event может породить максимум одно входящее и одно исходящее сообщение благодаря частичному уникальному индексу `(causation_event_id, direction)`. Это устраняет повторную запись бизнес-ответа при повторном запуске Celery-задачи.
+
+### Transactional Outbox и исходящая доставка
+
+Исходящее `Message` и единственная связанная запись `outbound_deliveries` создаются в одной PostgreSQL-транзакции. Delivery worker захватывает запись через `FOR UPDATE SKIP LOCKED`, переводит её в `sending`, сохраняет Telegram `message_id` после успеха и классифицирует ошибки на временные и постоянные. Временные ошибки получают exponential backoff, постоянные HTTP 4xx переходят в `failed`; администратор может вернуть failed-доставку в `pending` через закрытый endpoint.
+
+Система обеспечивает **at-least-once delivery** при единственном бизнес-ответе в PostgreSQL. Telegram Bot API не принимает idempotency key для `sendMessage`, поэтому в редком окне падения процесса после успешной отправки, но до фиксации `sent`, возможна повторная доставка на платформе. Это ограничение явно учитывается в эксплуатации и наблюдаемости.
+
+### Передача диалога человеку
+
+После медицинской, конфликтной или явно запрошенной эскалации диалог переходит из `active` в `escalated`. Последующие сообщения клиента сохраняются, но AI больше не отвечает. Закрытый Admin API позволяет перевести диалог в `human_owned`, вернуть его в `active` или закрыть. Частичный уникальный индекс гарантирует не более одного открытого диалога клиента среди `active`, `escalated` и `human_owned`.
 
 ### Работа с чувствительными данными
 
@@ -81,7 +96,7 @@ flowchart LR
 
 ### Отказоустойчивость внешней интеграции
 
-Celery поддерживает повтор задач, а GigaChat имеет безопасный fallback-ответ. Классификация временных ошибок внешнего API, полная идемпотентность на PostgreSQL и гарантированная исходящая доставка развиваются отдельно и явно отмечены в roadmap.
+Inbox и Outbox сохраняют работу до обращения к Redis, Telegram и GigaChat. Исходящие ошибки Telegram классифицируются на временные и постоянные, а recovery выполняется Celery Beat. Типизированные ошибки GigaChat, распределённое обновление OAuth-токена и устранение риска разных event loop в Celery остаются следующим этапом hardening.
 
 ## Технологический стек
 
@@ -156,9 +171,24 @@ Readiness-ответ не раскрывает внутренние тексты
 python -m pytest tests/unit -v --cov=src/app
 ```
 
-Unit-тесты проверяют классификацию запросов, эскалацию, изоляцию prompt metadata, аутентификацию Admin API, webhook secret, ограничение тела webhook до JSON-парсинга, TLS, минимизацию PII, PostgreSQL Inbox и health endpoints.
+Unit-тесты проверяют классификацию запросов, эскалацию, state machine диалога, Transactional Outbox, классификацию ошибок доставки, изоляцию prompt metadata, аутентификацию Admin API, webhook secret, ограничение тела webhook до JSON-парсинга, TLS, минимизацию PII, PostgreSQL Inbox и health endpoints.
 
 Интеграционные проверки PostgreSQL и конкурентных инвариантов запускаются отдельно на реальной тестовой базе.
+
+## Backend API оператора
+
+Все endpoints требуют заголовок `X-Admin-Key`:
+
+```text
+GET  /admin/conversations?status=escalated
+POST /admin/conversations/{id}/takeover
+POST /admin/conversations/{id}/return-to-ai
+POST /admin/conversations/{id}/close
+GET  /admin/deliveries?status=failed
+POST /admin/deliveries/{id}/retry
+```
+
+Это backend-контур для будущей панели Сони; полноценный UI пока не реализован.
 
 ## Безопасность
 
@@ -179,7 +209,8 @@ Unit-тесты проверяют классификацию запросов, 
 - [x] rate limiting и PII-redaction
 - [x] health endpoints и CI
 - [x] PostgreSQL Inbox и идемпотентная обработка входящих событий
-- [ ] Transactional Outbox, гарантированная исходящая доставка и outbound retry
+- [x] Transactional Outbox, at-least-once исходящая доставка и outbound retry
+- [x] backend-команды handoff и replay доставки
 - [ ] административный интерфейс оператора
 - [ ] расширенные интеграционные и нагрузочные тесты
 - [ ] метрики и dashboard observability

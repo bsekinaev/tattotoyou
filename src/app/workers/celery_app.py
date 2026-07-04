@@ -10,6 +10,7 @@ celery_app = Celery(
     backend=settings.redis_url,
     include=[
         "app.workers.tasks.process_telegram_update",
+        "app.workers.tasks.deliver_outbound_message",
         "app.workers.tasks.send_admin_notification",
     ],
 )
@@ -27,6 +28,10 @@ celery_app.conf.update(
         "recover-incoming-events": {
             "task": "recover_incoming_events",
             "schedule": float(settings.incoming_event_recovery_interval_seconds),
+        },
+        "recover-outbound-deliveries": {
+            "task": "recover_outbound_deliveries",
+            "schedule": float(settings.outbound_delivery_recovery_interval_seconds),
         },
     },
 )

@@ -254,7 +254,7 @@ async def test_webhook_keeps_committed_event_when_broker_is_down(
 @pytest.mark.asyncio
 async def test_existing_outbound_effect_short_circuits_conversation_processing() -> None:
     event_id = uuid.uuid4()
-    existing_outbound = SimpleNamespace(id=8)
+    existing_outbound = SimpleNamespace(id=8, platform_message_id="77")
     message_repo = SimpleNamespace(get_by_causation=AsyncMock(return_value=existing_outbound))
     platform_adapter = SimpleNamespace(send_message=AsyncMock())
     ai_client = SimpleNamespace(generate_response=AsyncMock())
@@ -266,6 +266,7 @@ async def test_existing_outbound_effect_short_circuits_conversation_processing()
         message_repo=message_repo,
         platform_adapter=platform_adapter,
         ai_client=ai_client,
+        outbound_delivery_repo=SimpleNamespace(get_by_message_id=AsyncMock(return_value=None)),
     )
     platform_message = SimpleNamespace(
         text="Привет",

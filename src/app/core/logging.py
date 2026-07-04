@@ -32,6 +32,7 @@ _SECRET_KEY_PARTS = (
 _PII_KEYS = frozenset(
     {
         "chat_id",
+        "destination_id",
         "user_id",
         "external_id",
         "client_name",

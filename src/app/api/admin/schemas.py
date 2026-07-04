@@ -51,3 +51,37 @@ class KnowledgeBaseListResponse(BaseModel):
 
     items: list[KnowledgeBaseResponse]
     total: int
+
+
+# ============================================
+# CONVERSATION AND DELIVERY SCHEMAS
+# ============================================
+
+
+class ConversationStateResponse(BaseModel):
+    """Текущее состояние handoff-диалога."""
+
+    id: str
+    client_id: int
+    status: str
+    assigned_to_human: bool
+    ai_messages_count: int
+    human_messages_count: int
+    last_activity_at: datetime
+    closed_at: datetime | None
+
+
+class OutboundDeliveryResponse(BaseModel):
+    """Состояние одной исходящей доставки."""
+
+    id: str
+    message_id: int
+    platform: str
+    destination_id: str
+    status: str
+    attempts: int
+    next_attempt_at: datetime | None
+    last_error_code: str | None
+    platform_message_id: str | None
+    sent_at: datetime | None
+    failed_at: datetime | None

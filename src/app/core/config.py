@@ -105,6 +105,15 @@ class Settings(BaseSettings):
     incoming_event_recovery_batch_size: int = Field(default=100, ge=1, le=1000)
 
     # ============================================
+    # OUTBOUND DELIVERY OUTBOX
+    # ============================================
+    outbound_delivery_max_attempts: int = Field(default=6, ge=1, le=100)
+    outbound_delivery_retry_base_seconds: int = Field(default=5, ge=1, le=3600)
+    outbound_delivery_processing_timeout_seconds: int = Field(default=300, ge=30, le=86400)
+    outbound_delivery_recovery_interval_seconds: int = Field(default=30, ge=10, le=3600)
+    outbound_delivery_recovery_batch_size: int = Field(default=100, ge=1, le=1000)
+
+    # ============================================
     # SECURITY
     # ============================================
     secret_key: SecretStr = Field(description="Секретный ключ для HMAC")

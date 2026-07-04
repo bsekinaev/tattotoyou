@@ -19,3 +19,5 @@ build/
 ngrok
 ngrok.exe
 *.exe
+# Celery Beat local schedule
+celerybeat-schedule*

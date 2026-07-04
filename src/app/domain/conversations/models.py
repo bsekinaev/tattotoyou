@@ -8,7 +8,17 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,6 +29,19 @@ if TYPE_CHECKING:
     from app.domain.clients.models import Client
 
 
+CONVERSATION_ACTIVE = "active"
+CONVERSATION_ESCALATED = "escalated"
+CONVERSATION_HUMAN_OWNED = "human_owned"
+CONVERSATION_CLOSED = "closed"
+CONVERSATION_SPAM = "spam"
+
+OPEN_CONVERSATION_STATUSES = (
+    CONVERSATION_ACTIVE,
+    CONVERSATION_ESCALATED,
+    CONVERSATION_HUMAN_OWNED,
+)
+
+
 class Conversation(Base):
     """
     Диалог (сессия общения) с клиентом.
@@ -26,11 +49,15 @@ class Conversation(Base):
 
     __tablename__ = "conversations"
     __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'escalated', 'human_owned', 'closed', 'spam')",
+            name="ck_conversations_status",
+        ),
         Index(
             "uq_conversations_one_active_per_client",
             "client_id",
             unique=True,
-            postgresql_where=text("status = 'active'"),
+            postgresql_where=text("status IN ('active', 'escalated', 'human_owned')"),
         ),
     )
 
@@ -46,7 +73,11 @@ class Conversation(Base):
         index=True,
     )
     status: Mapped[str] = mapped_column(
-        String(20), default="active", nullable=False, comment="active, escalated, closed, spam"
+        String(20),
+        default=CONVERSATION_ACTIVE,
+        server_default=CONVERSATION_ACTIVE,
+        nullable=False,
+        comment="active, escalated, human_owned, closed, spam",
     )
     assigned_to_human: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, comment="Взял ли мастер диалог на себя"
@@ -80,6 +111,10 @@ class Message(Base):
 
     __tablename__ = "messages"
     __table_args__ = (
+        CheckConstraint(
+            "sender_type IN ('client', 'bot', 'human', 'system')",
+            name="ck_messages_sender_type",
+        ),
         Index(
             "uq_messages_causation_direction",
             "causation_event_id",
@@ -100,6 +135,13 @@ class Message(Base):
         String(10), nullable=False, comment="inbound (от клиента) или outbound (от бота)"
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    sender_type: Mapped[str] = mapped_column(
+        String(20),
+        default="bot",
+        server_default="bot",
+        nullable=False,
+        comment="client, bot, human, system",
+    )
 
     platform_message_id: Mapped[str | None] = mapped_column(
         String(100),
