@@ -16,6 +16,33 @@ logger = get_logger(__name__)
 settings = get_settings()
 
 
+def split_telegram_text(text: str, max_length: int) -> list[str]:
+    """Разбить длинный plain-text по границам абзацев/слов."""
+    if len(text) <= max_length:
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+    while remaining:
+        if len(remaining) <= max_length:
+            chunks.append(remaining)
+            break
+
+        window = remaining[:max_length]
+        split_at = max(window.rfind("\n"), window.rfind(" "))
+        if split_at < max_length // 2:
+            split_at = max_length
+
+        chunk = remaining[:split_at].rstrip()
+        if not chunk:
+            chunk = remaining[:max_length]
+            split_at = max_length
+        chunks.append(chunk)
+        remaining = remaining[split_at:].lstrip()
+
+    return chunks
+
+
 class TelegramAdapter(PlatformAdapter):
     """Telegram Bot API adapter."""
 
@@ -33,18 +60,23 @@ class TelegramAdapter(PlatformAdapter):
         return "telegram"
 
     async def send_message(self, chat_id: str, text: str) -> str:
-        """Отправить клиенту обычный текст без интерпретации HTML."""
+        """Отправить plain-text, безопасно разбивая его под лимит Telegram."""
+        last_message_id: str | None = None
         try:
-            response = await self._client.post(
-                f"{self.base_url}/sendMessage",
-                json={
-                    "chat_id": int(chat_id),
-                    "text": text,
-                },
-            )
-            response.raise_for_status()
-            result = response.json()
-            return str(result["result"]["message_id"])
+            for chunk in split_telegram_text(text, settings.telegram_message_chunk_size):
+                response = await self._client.post(
+                    f"{self.base_url}/sendMessage",
+                    json={
+                        "chat_id": int(chat_id),
+                        "text": chunk,
+                    },
+                )
+                response.raise_for_status()
+                result = response.json()
+                last_message_id = str(result["result"]["message_id"])
+            if last_message_id is None:
+                raise ValueError("Telegram message is empty")
+            return last_message_id
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code
             logger.error(

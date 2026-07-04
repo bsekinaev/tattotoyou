@@ -93,6 +93,32 @@ async def test_client_get_or_create_uses_composite_postgresql_upsert() -> None:
 
 
 @pytest.mark.asyncio
+async def test_existing_client_profile_is_refreshed_from_platform_metadata() -> None:
+    existing = Client(
+        id=11,
+        platform_id=7,
+        external_id="123",
+        display_name="Старое имя",
+        username="old_name",
+        is_vip=False,
+        is_banned=False,
+    )
+    session = FakeSession([ScalarResult(None), ScalarResult(existing)])
+
+    result = await ClientRepository(session).get_or_create(
+        platform_id=7,
+        external_id="123",
+        display_name="Новое имя",
+        username="new_name",
+    )
+
+    assert result.display_name == "Новое имя"
+    assert result.username == "new_name"
+    session.flush.assert_awaited_once()
+    session.refresh.assert_awaited_once_with(existing)
+
+
+@pytest.mark.asyncio
 async def test_active_conversation_creation_locks_client_row() -> None:
     conversation = Conversation(
         client_id=3,

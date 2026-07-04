@@ -75,6 +75,20 @@ class Settings(BaseSettings):
     gigachat_scope: str = "GIGACHAT_API_PERS"
     gigachat_model: str = "GigaChat-Pro"
     gigachat_ca_bundle: Path | None = None
+    gigachat_max_attempts: int = Field(default=3, ge=1, le=10)
+    gigachat_retry_base_seconds: float = Field(default=1.0, ge=0.1, le=60.0)
+    gigachat_retry_max_seconds: float = Field(default=15.0, ge=0.1, le=300.0)
+    gigachat_retry_jitter_seconds: float = Field(default=0.5, ge=0.0, le=10.0)
+    gigachat_token_lock_ttl_seconds: int = Field(default=15, ge=5, le=120)
+    gigachat_token_lock_wait_seconds: float = Field(default=10.0, ge=1.0, le=120.0)
+    gigachat_token_lock_poll_seconds: float = Field(default=0.1, ge=0.01, le=5.0)
+    gigachat_max_output_tokens: int = Field(default=700, ge=64, le=4096)
+
+    # Ограничения контекста и ответа LLM.
+    ai_history_max_messages: int = Field(default=12, ge=1, le=100)
+    ai_history_max_chars: int = Field(default=12000, ge=1000, le=100000)
+    ai_response_max_chars: int = Field(default=4000, ge=256, le=12000)
+    telegram_message_chunk_size: int = Field(default=4000, ge=256, le=4096)
 
     # ============================================
     # DATABASE

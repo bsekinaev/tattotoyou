@@ -55,8 +55,15 @@ def normalize_display_name(value: str | None) -> str | None:
 
 class PromptBuilder:
     @classmethod
-    def build_history(cls, client: Client, messages: list[Message]) -> list[dict[str, str]]:
-        """Build an LLM history while keeping user metadata isolated."""
+    def build_history(
+        cls,
+        client: Client,
+        messages: list[Message],
+        *,
+        max_messages: int | None = None,
+        max_chars: int | None = None,
+    ) -> list[dict[str, str]]:
+        """Build a bounded LLM history while keeping user metadata isolated."""
         history: list[dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
         safe_name = normalize_display_name(client.display_name)
@@ -79,11 +86,40 @@ class PromptBuilder:
                 }
             )
 
-        for msg in messages:
+        bounded_messages = cls._bounded_messages(
+            messages,
+            max_messages=max_messages,
+            max_chars=max_chars,
+        )
+        for msg, content in bounded_messages:
             role = "user" if msg.direction == "inbound" else "assistant"
-            history.append({"role": role, "content": minimize_external_ai_text(msg.content)})
+            history.append({"role": role, "content": content})
 
         return history
+
+    @staticmethod
+    def _bounded_messages(
+        messages: list[Message],
+        *,
+        max_messages: int | None,
+        max_chars: int | None,
+    ) -> list[tuple[Message, str]]:
+        selected = messages[-max_messages:] if max_messages is not None else messages
+        remaining = max_chars
+        result: list[tuple[Message, str]] = []
+
+        for message in reversed(selected):
+            content = minimize_external_ai_text(message.content)
+            if remaining is not None:
+                if remaining <= 0:
+                    break
+                if len(content) > remaining:
+                    content = content[-remaining:]
+                remaining -= len(content)
+            result.append((message, content))
+
+        result.reverse()
+        return result
 
     @classmethod
     def build_with_faq(

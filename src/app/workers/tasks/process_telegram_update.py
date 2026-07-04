@@ -21,7 +21,7 @@ from app.infrastructure.db.repositories import (
     MessageRepository,
     PlatformRepository,
 )
-from app.infrastructure.db.session import async_session_factory
+from app.infrastructure.db.worker_session import worker_session_scope as async_session_factory
 from app.services.ai.fallback_responder import FallbackResponder
 from app.services.ai.gigachat_client import GigaChatClient
 from app.services.ai.intent_classifier import IntentClassifier

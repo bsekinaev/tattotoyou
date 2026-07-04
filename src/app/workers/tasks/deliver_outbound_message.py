@@ -22,7 +22,7 @@ from app.infrastructure.db.repositories import (
     MessageRepository,
     OutboundDeliveryRepository,
 )
-from app.infrastructure.db.session import async_session_factory
+from app.infrastructure.db.worker_session import worker_session_scope as async_session_factory
 from app.workers.celery_app import celery_app
 
 logger = get_logger(__name__)

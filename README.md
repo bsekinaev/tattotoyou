@@ -8,7 +8,7 @@
 
 Telegram-ассистент для обработки типовых обращений клиентов тату-студии. Сервис принимает webhook-события, определяет сценарий обращения, формирует ответ с помощью GigaChat и передаёт сложные или чувствительные случаи мастеру.
 
-> **Статус:** portfolio MVP в стадии стабилизации надёжности. PostgreSQL Inbox, Transactional Outbox, повтор исходящей доставки и backend-state machine передачи диалога человеку реализованы. Полноценный интерфейс оператора и production hardening внешнего AI остаются в roadmap.
+> **Статус:** portfolio MVP в стадии стабилизации надёжности. PostgreSQL Inbox, Transactional Outbox, handoff-state machine и hardening GigaChat/Celery реализованы. Полноценный интерфейс оператора и подключение RAG к активному pipeline остаются в roadmap.
 
 ## Задача проекта
 
@@ -30,13 +30,15 @@ Telegram-ассистент для обработки типовых обращ�
 - идемпотентная обработка повторных Telegram update и recovery зависших событий;
 - Transactional Outbox для исходящих сообщений, повтор доставки и ручной replay failed-записей;
 - handoff-состояния диалога `active`, `escalated`, `human_owned`, `closed`;
-- интеграция с GigaChat по OAuth2;
+- интеграция с GigaChat по OAuth2, типизированные ошибки, bounded retry и distributed token refresh lock;
 - основа базы знаний и pgvector; подключение RAG к активному pipeline находится в roadmap;
 - keyword-based классификация типовых намерений;
 - эскалация медицинских, токсичных и нестандартных запросов мастеру;
 - Redis rate limiter на Lua-скрипте;
 - маскирование телефонов и email перед вызовом внешнего AI API;
 - обязательная TLS-верификация для GigaChat;
+- ограничение истории/ответа AI, fallback с эскалацией и блокировка ответов banned-клиентам;
+- loop-local SQLAlchemy engine для Celery-задач и разбиение длинного Telegram plain-text;
 - `/live`, `/ready` и `/health` для проверки состояния сервиса;
 - структурированное логирование;
 - миграции Alembic;
@@ -96,7 +98,9 @@ flowchart LR
 
 ### Отказоустойчивость внешней интеграции
 
-Inbox и Outbox сохраняют работу до обращения к Redis, Telegram и GigaChat. Исходящие ошибки Telegram классифицируются на временные и постоянные, а recovery выполняется Celery Beat. Типизированные ошибки GigaChat, распределённое обновление OAuth-токена и устранение риска разных event loop в Celery остаются следующим этапом hardening.
+Inbox и Outbox сохраняют работу до обращения к Redis, Telegram и GigaChat. Исходящие ошибки Telegram классифицируются на временные и постоянные, а recovery выполняется Celery Beat. GigaChat различает authentication, rate limit, timeout, transport, 5xx и invalid-response ошибки; повторяются только временные сбои с bounded exponential backoff и jitter. После `401` отклонённый token сбрасывается и обновляется один раз, а Redis-lock предотвращает параллельный refresh несколькими worker.
+
+После исчерпания AI-попыток создаётся обычный fallback-ответ через Transactional Outbox, диалог переводится в `escalated`, а Соне отправляется уведомление без технических деталей и секретов. История ограничивается числом сообщений и символов. Celery использует loop-local SQLAlchemy engine с `NullPool`, поэтому соединения не переиспользуются между отдельными `asyncio.run`.
 
 ## Технологический стек
 
@@ -171,7 +175,7 @@ Readiness-ответ не раскрывает внутренние тексты
 python -m pytest tests/unit -v --cov=src/app
 ```
 
-Unit-тесты проверяют классификацию запросов, эскалацию, state machine диалога, Transactional Outbox, классификацию ошибок доставки, изоляцию prompt metadata, аутентификацию Admin API, webhook secret, ограничение тела webhook до JSON-парсинга, TLS, минимизацию PII, PostgreSQL Inbox и health endpoints.
+Unit-тесты проверяют классификацию запросов, эскалацию, state machine диалога, Transactional Outbox, классификацию ошибок доставки, retry/refresh GigaChat, bounded prompt, AI fallback, banned-клиентов, loop-local DB session, Telegram chunking, аутентификацию Admin API, webhook secret, TLS, минимизацию PII, PostgreSQL Inbox и health endpoints.
 
 Интеграционные проверки PostgreSQL и конкурентных инвариантов запускаются отдельно на реальной тестовой базе.
 
@@ -211,6 +215,8 @@ POST /admin/deliveries/{id}/retry
 - [x] PostgreSQL Inbox и идемпотентная обработка входящих событий
 - [x] Transactional Outbox, at-least-once исходящая доставка и outbound retry
 - [x] backend-команды handoff и replay доставки
+- [x] typed errors GigaChat, bounded retry, token refresh lock и AI fallback
+- [x] loop-local DB engine для Celery и лимиты контекста/ответа
 - [ ] административный интерфейс оператора
 - [ ] расширенные интеграционные и нагрузочные тесты
 - [ ] метрики и dashboard observability

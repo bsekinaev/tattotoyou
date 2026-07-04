@@ -13,6 +13,7 @@ from app.domain.conversations.models import (
     CONVERSATION_CLOSED,
     CONVERSATION_ESCALATED,
     CONVERSATION_HUMAN_OWNED,
+    CONVERSATION_SPAM,
     OPEN_CONVERSATION_STATUSES,
     Conversation,
 )
@@ -139,6 +140,14 @@ class ConversationRepository(BaseRepository[Conversation]):
                 f"Cannot close conversation from {conversation.status}"
             )
         self._close(conversation, datetime.now(UTC))
+        await self.session.flush()
+        return conversation
+
+    async def mark_spam(self, conversation: Conversation) -> Conversation:
+        """Закрыть диалог заблокированного клиента без ответа AI."""
+        conversation.status = CONVERSATION_SPAM
+        conversation.assigned_to_human = False
+        conversation.closed_at = datetime.now(UTC)
         await self.session.flush()
         return conversation
 

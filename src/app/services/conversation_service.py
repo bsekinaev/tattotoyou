@@ -6,6 +6,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.platforms.base import PlatformAdapter, PlatformMessage
 from app.domain.clients.models import Client
@@ -21,6 +22,8 @@ from app.infrastructure.db.repositories import (
     OutboundDeliveryRepository,
     PlatformRepository,
 )
+from app.services.ai.exceptions import GigaChatError
+from app.services.ai.fallback_responder import FallbackResponder
 from app.services.ai.gigachat_client import GigaChatClient
 from app.services.ai.intent_classifier import IntentClassifier
 from app.services.ai.prompt_builder import PromptBuilder
@@ -29,6 +32,7 @@ from app.workers.tasks.deliver_outbound_message import deliver_outbound_message_
 from app.workers.tasks.send_admin_notification import send_admin_notification_task
 
 logger = get_logger(__name__)
+settings = get_settings()
 
 
 class ConversationService:
@@ -100,6 +104,16 @@ class ConversationService:
             causation_event_id=causation_event_id,
         )
 
+        if getattr(client, "is_banned", False):
+            await self.conversation_repo.mark_spam(conversation)
+            await self.db.commit()
+            logger.warning(
+                "banned_client_message_suppressed",
+                client_id=client.id,
+                conversation_id=str(conversation.id),
+            )
+            return
+
         if conversation.status in (CONVERSATION_ESCALATED, CONVERSATION_HUMAN_OWNED):
             logger.info(
                 "ai_reply_suppressed_for_handoff",
@@ -123,16 +137,37 @@ class ConversationService:
                 "Отличный вопрос! Передам его Софии — она лично ответит в течение 15 минут 💛"
             )
         else:
-            history_msgs = await self.message_repo.get_history(conversation.id, limit=10)
-            ai_history = PromptBuilder.build_history(client, history_msgs)
+            history_msgs = await self.message_repo.get_history(
+                conversation.id,
+                limit=settings.ai_history_max_messages,
+            )
+            ai_history = PromptBuilder.build_history(
+                client,
+                history_msgs,
+                max_messages=settings.ai_history_max_messages,
+                max_chars=settings.ai_history_max_chars,
+            )
             logger.info(
                 "calling_gigachat",
                 chat_id=message.chat_id,
                 intent=intent,
                 history_length=len(ai_history),
             )
-            reply_text = await self.ai_client.generate_response(ai_history)
+            try:
+                reply_text = await self.ai_client.generate_response(ai_history)
+            except GigaChatError as exc:
+                should_escalate = True
+                reason = f"ai_unavailable:{exc.code}"
+                await self.conversation_repo.escalate(conversation)
+                reply_text = FallbackResponder.get_response(intent)
+                logger.error(
+                    "gigachat_fallback_escalated",
+                    error_code=exc.code,
+                    retryable=exc.retryable,
+                    conversation_id=str(conversation.id),
+                )
 
+        reply_text = self._bounded_reply(reply_text)
         outbound_created = True
         if causation_event_id is None:
             outbound = await self.message_repo.create_message(
@@ -206,7 +241,7 @@ class ConversationService:
         client = await self.client_repo.get_or_create(
             platform_id=platform.id,
             external_id=message.user.external_id,
-            display_name=message.user.display_name or "Гость",
+            display_name=message.user.display_name,
             username=message.user.username,
         )
         conversation = await self.conversation_repo.get_or_create_active(client_id=client.id)
@@ -231,6 +266,13 @@ class ConversationService:
             )
         await self.db.commit()
         return client, conversation
+
+    @staticmethod
+    def _bounded_reply(reply_text: str) -> str:
+        normalized = reply_text.strip()
+        if len(normalized) <= settings.ai_response_max_chars:
+            return normalized
+        return normalized[: settings.ai_response_max_chars - 1].rstrip() + "…"
 
     @staticmethod
     def _dispatch_delivery(delivery_id: uuid.UUID) -> bool:
