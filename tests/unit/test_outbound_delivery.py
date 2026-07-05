@@ -222,6 +222,16 @@ async def test_conversation_service_commits_outbox_before_dispatch(
         platform_adapter=adapter,
         ai_client=ai_client,
         outbound_delivery_repo=outbox_repo,
+        knowledge_retriever=SimpleNamespace(
+            retrieve=AsyncMock(
+                return_value=[
+                    {
+                        "question": "Сколько стоит тату?",
+                        "answer": "Стоимость уточняется после обсуждения эскиза.",
+                    }
+                ]
+            )
+        ),
     )
     service._resolve_conversation = AsyncMock(return_value=(client, conversation))
 

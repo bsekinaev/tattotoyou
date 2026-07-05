@@ -8,7 +8,7 @@
 
 Telegram-ассистент для обработки типовых обращений клиентов тату-студии. Сервис принимает webhook-события, определяет сценарий обращения, формирует ответ с помощью GigaChat и передаёт сложные или чувствительные случаи мастеру.
 
-> **Статус:** portfolio MVP в стадии стабилизации надёжности. PostgreSQL Inbox, Transactional Outbox, handoff-state machine и hardening GigaChat/Celery реализованы. Полноценный интерфейс оператора и подключение RAG к активному pipeline остаются в roadmap.
+> **Статус:** portfolio MVP в стадии стабилизации надёжности. PostgreSQL Inbox, Transactional Outbox, handoff-state machine, hardening GigaChat/Celery и активный RAG-пайплайн реализованы. Полноценный интерфейс оператора остаётся в roadmap.
 
 ## Задача проекта
 
@@ -31,7 +31,7 @@ Telegram-ассистент для обработки типовых обращ�
 - Transactional Outbox для исходящих сообщений, повтор доставки и ручной replay failed-записей;
 - handoff-состояния диалога `active`, `escalated`, `human_owned`, `closed`;
 - интеграция с GigaChat по OAuth2, типизированные ошибки, bounded retry и distributed token refresh lock;
-- основа базы знаний и pgvector; подключение RAG к активному pipeline находится в roadmap;
+- управляемая база знаний, pgvector retrieval, lifecycle embeddings и безопасный fallback при отсутствии подтверждённых фактов;
 - keyword-based классификация типовых намерений;
 - эскалация медицинских, токсичных и нестандартных запросов мастеру;
 - Redis rate limiter на Lua-скрипте;
@@ -109,7 +109,7 @@ Inbox и Outbox сохраняют работу до обращения к Redis
 | Backend | Python 3.12, FastAPI, Pydantic v2 |
 | Database | PostgreSQL 15, SQLAlchemy 2.0 async, Alembic |
 | Queue / cache | Celery, Redis |
-| AI | GigaChat API, OAuth2, pgvector/RAG foundation |
+| AI | GigaChat API, OAuth2, sentence-transformers, pgvector/RAG |
 | HTTP | httpx |
 | Tests | pytest, pytest-asyncio, pytest-cov |
 | Quality | Ruff, GitHub Actions |
@@ -194,6 +194,32 @@ POST /admin/deliveries/{id}/retry
 
 Это backend-контур для будущей панели Сони; полноценный UI пока не реализован.
 
+## База знаний и RAG
+
+Admin API автоматически создаёт или обновляет embedding при изменении вопроса, ответа или ключевых слов:
+
+```text
+GET    /admin/knowledge
+POST   /admin/knowledge
+GET    /admin/knowledge/{id}
+PATCH  /admin/knowledge/{id}
+DELETE /admin/knowledge/{id}
+```
+
+Существующие записи после обновления приложения нужно проиндексировать:
+
+```bash
+python scripts/backfill_knowledge_embeddings.py
+```
+
+Для полного пересчёта:
+
+```bash
+python scripts/backfill_knowledge_embeddings.py --force
+```
+
+RAG использует cosine similarity в pgvector. Для намерений `pricing`, `booking`, `aftercare` и `portfolio` отсутствие релевантной записи не приводит к выдуманному ответу: диалог эскалируется Соне. При временной недоступности embedding-модели применяется консервативный keyword fallback. Первый запуск sentence-transformers может скачать модель; в production образ устанавливается с extra `rag`.
+
 ## Безопасность
 
 - тело Telegram webhook ограничивается до JSON/Pydantic-парсинга;
@@ -208,8 +234,8 @@ POST /admin/deliveries/{id}/retry
 
 - [x] Telegram webhook и Celery pipeline
 - [x] PostgreSQL, Redis и Alembic
-- [x] GigaChat OAuth2 и pgvector foundation
-- [ ] подключение RAG к активному pipeline и lifecycle embeddings
+- [x] GigaChat OAuth2, pgvector и lifecycle embeddings
+- [x] активный RAG-пайплайн с relevance threshold и keyword fallback
 - [x] rate limiting и PII-redaction
 - [x] health endpoints и CI
 - [x] PostgreSQL Inbox и идемпотентная обработка входящих событий

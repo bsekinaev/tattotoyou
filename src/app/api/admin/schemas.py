@@ -40,6 +40,7 @@ class KnowledgeBaseResponse(BaseModel):
     keywords: list[str]
     is_active: bool
     priority: int
+    embedding_ready: bool
     created_at: datetime
     updated_at: datetime
 

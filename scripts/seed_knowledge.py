@@ -17,6 +17,7 @@ from sqlalchemy import select
 from app.core.logging import get_logger, setup_logging
 from app.domain.knowledge.models import KnowledgeBase
 from app.infrastructure.db.session import async_session_factory
+from app.services.ai.embedding_service import build_knowledge_embedding_text, generate_embeddings
 
 setup_logging()
 logger = get_logger(__name__)
@@ -174,10 +175,18 @@ async def seed_knowledge_base():
             )
             return
 
-        # Добавляем seed-данные
-        for item in SEED_DATA:
-            kb = KnowledgeBase(**item)
-            session.add(kb)
+        embedding_texts = [
+            build_knowledge_embedding_text(
+                question=item["question"],
+                answer=item["answer"],
+                keywords=item["keywords"],
+            )
+            for item in SEED_DATA
+        ]
+        embeddings = await generate_embeddings(embedding_texts)
+
+        for item, embedding in zip(SEED_DATA, embeddings, strict=True):
+            session.add(KnowledgeBase(**item, question_vector=embedding))
 
         await session.commit()
 

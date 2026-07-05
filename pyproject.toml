@@ -45,7 +45,7 @@ dev = [
 # HATCHLING — современный сборщик пакетов
 # ============================================
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling","editables"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]

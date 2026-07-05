@@ -91,6 +91,21 @@ class Settings(BaseSettings):
     telegram_message_chunk_size: int = Field(default=4000, ge=256, le=4096)
 
     # ============================================
+    # RAG / KNOWLEDGE BASE
+    # ============================================
+    rag_enabled: bool = True
+    rag_top_k: int = Field(default=3, ge=1, le=10)
+    rag_similarity_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+    rag_required_intents: str = "pricing,booking,aftercare,portfolio"
+    embedding_model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    embedding_dimension: int = Field(default=384, ge=8, le=4096)
+    embedding_backfill_batch_size: int = Field(default=32, ge=1, le=500)
+
+    @property
+    def rag_required_intent_set(self) -> set[str]:
+        return {item.strip() for item in self.rag_required_intents.split(",") if item.strip()}
+
+    # ============================================
     # DATABASE
     # ============================================
     postgres_host: str = "localhost"

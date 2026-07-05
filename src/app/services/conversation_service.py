@@ -26,6 +26,7 @@ from app.services.ai.exceptions import GigaChatError
 from app.services.ai.fallback_responder import FallbackResponder
 from app.services.ai.gigachat_client import GigaChatClient
 from app.services.ai.intent_classifier import IntentClassifier
+from app.services.ai.knowledge_retriever import KnowledgeRetriever
 from app.services.ai.prompt_builder import PromptBuilder
 from app.services.escalation.engine import EscalationEngine
 from app.workers.tasks.deliver_outbound_message import deliver_outbound_message_task
@@ -48,6 +49,7 @@ class ConversationService:
         platform_adapter: PlatformAdapter,
         ai_client: GigaChatClient,
         outbound_delivery_repo: OutboundDeliveryRepository | None = None,
+        knowledge_retriever: KnowledgeRetriever | None = None,
     ):
         self.db = db
         self.platform_repo = platform_repo
@@ -57,6 +59,7 @@ class ConversationService:
         self.platform_adapter = platform_adapter
         self.ai_client = ai_client
         self.outbound_delivery_repo = outbound_delivery_repo or OutboundDeliveryRepository(db)
+        self.knowledge_retriever = knowledge_retriever or KnowledgeRetriever(db)
 
     async def process_message(
         self,
@@ -141,31 +144,46 @@ class ConversationService:
                 conversation.id,
                 limit=settings.ai_history_max_messages,
             )
-            ai_history = PromptBuilder.build_history(
-                client,
-                history_msgs,
-                max_messages=settings.ai_history_max_messages,
-                max_chars=settings.ai_history_max_chars,
-            )
-            logger.info(
-                "calling_gigachat",
-                chat_id=message.chat_id,
-                intent=intent,
-                history_length=len(ai_history),
-            )
-            try:
-                reply_text = await self.ai_client.generate_response(ai_history)
-            except GigaChatError as exc:
+            knowledge_items = await self.knowledge_retriever.retrieve(message.text)
+
+            if intent in settings.rag_required_intent_set and not knowledge_items:
                 should_escalate = True
-                reason = f"ai_unavailable:{exc.code}"
+                reason = f"knowledge_missing:{intent}"
                 await self.conversation_repo.escalate(conversation)
                 reply_text = FallbackResponder.get_response(intent)
-                logger.error(
-                    "gigachat_fallback_escalated",
-                    error_code=exc.code,
-                    retryable=exc.retryable,
+                logger.warning(
+                    "required_knowledge_not_found",
+                    intent=intent,
                     conversation_id=str(conversation.id),
                 )
+            else:
+                ai_history = PromptBuilder.build_with_knowledge(
+                    client,
+                    history_msgs,
+                    knowledge_items,
+                    max_messages=settings.ai_history_max_messages,
+                    max_chars=settings.ai_history_max_chars,
+                )
+                logger.info(
+                    "calling_gigachat",
+                    chat_id=message.chat_id,
+                    intent=intent,
+                    history_length=len(ai_history),
+                    knowledge_items=len(knowledge_items),
+                )
+                try:
+                    reply_text = await self.ai_client.generate_response(ai_history)
+                except GigaChatError as exc:
+                    should_escalate = True
+                    reason = f"ai_unavailable:{exc.code}"
+                    await self.conversation_repo.escalate(conversation)
+                    reply_text = FallbackResponder.get_response(intent)
+                    logger.error(
+                        "gigachat_fallback_escalated",
+                        error_code=exc.code,
+                        retryable=exc.retryable,
+                        conversation_id=str(conversation.id),
+                    )
 
         reply_text = self._bounded_reply(reply_text)
         outbound_created = True

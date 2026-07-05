@@ -112,6 +112,16 @@ async def test_final_ai_failure_creates_fallback_outbox_and_notifies_admin(
         platform_adapter=SimpleNamespace(),
         ai_client=ai_client,
         outbound_delivery_repo=outbox_repo,
+        knowledge_retriever=SimpleNamespace(
+            retrieve=AsyncMock(
+                return_value=[
+                    {
+                        "question": "Сколько стоит тату?",
+                        "answer": "Стоимость уточняется после обсуждения эскиза.",
+                    }
+                ]
+            )
+        ),
     )
     service._resolve_conversation = AsyncMock(return_value=(client, conversation))
     monkeypatch.setattr(service_module.IntentClassifier, "classify", lambda _text: "pricing")
@@ -129,7 +139,7 @@ async def test_final_ai_failure_creates_fallback_outbox_and_notifies_admin(
 
     conversation_repo.escalate.assert_awaited_once_with(conversation)
     kwargs = message_repo.create_message_once.await_args.kwargs
-    assert "минималка" in kwargs["content"]
+    assert "не могу надёжно подтвердить стоимость" in kwargs["content"]
     assert kwargs["is_escalation_trigger"] is True
     assert notify.call_args.kwargs["reason"] == "ai_unavailable:completion_server_error"
     dispatch.assert_called_once_with(str(delivery.id))
