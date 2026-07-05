@@ -49,3 +49,13 @@ def test_sanitize_log_text_removes_tokens_credentials_and_contacts() -> None:
     assert "client@example.com" not in sanitized
     assert "+7 (999) 123-45-67" not in sanitized
     assert sanitized.count("[REDACTED]") >= 5
+
+
+def test_redaction_masks_outbound_destination_id() -> None:
+    event = redact_sensitive_data(
+        None,
+        "info",
+        {"event": "outbound_delivery_sent", "destination_id": "123456"},
+    )
+
+    assert event["destination_id"] == "[REDACTED]"

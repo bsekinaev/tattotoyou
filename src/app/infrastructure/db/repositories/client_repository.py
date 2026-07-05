@@ -69,4 +69,15 @@ class ClientRepository(BaseRepository[Client]):
 
         if client is None:
             raise RuntimeError("Client upsert completed without a visible row")
+
+        profile_updates: dict[str, Any] = {}
+        display_name = kwargs.get("display_name")
+        username = kwargs.get("username")
+        if display_name and display_name != client.display_name:
+            profile_updates["display_name"] = display_name
+        if username != client.username:
+            profile_updates["username"] = username
+        if profile_updates:
+            await self.update(client, **profile_updates)
+
         return client

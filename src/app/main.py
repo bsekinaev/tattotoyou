@@ -19,7 +19,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
-# 🆕 Knowledge Base Admin API
+# 🆕 Admin API
+from app.api.admin.conversations import router as admin_conversations_router
 from app.api.admin.knowledge import router as admin_knowledge_router
 from app.api.webhooks.telegram import router as telegram_router
 from app.core.config import get_settings
@@ -269,6 +270,11 @@ def create_app() -> FastAPI:
     app.include_router(telegram_router, prefix="/webhook", tags=["webhooks"])
     app.include_router(
         admin_knowledge_router,
+        prefix="/admin",
+        tags=["admin"],
+    )
+    app.include_router(
+        admin_conversations_router,
         prefix="/admin",
         tags=["admin"],
     )

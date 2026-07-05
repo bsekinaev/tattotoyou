@@ -47,13 +47,15 @@ class MessageRepository(BaseRepository[Message]):
         content: str,
         platform_message_id: str | None = None,
         causation_event_id: uuid.UUID | None = None,
+        sender_type: str | None = None,
         **kwargs: Any,
     ) -> Message:
-        """Создать новое сообщение."""
+        """Создать новое сообщение с корректным типом автора."""
         return await self.create(
             conversation_id=conversation_id,
             direction=direction,
             content=content,
+            sender_type=sender_type or self._default_sender_type(direction),
             platform_message_id=platform_message_id,
             causation_event_id=causation_event_id,
             **kwargs,
@@ -67,6 +69,7 @@ class MessageRepository(BaseRepository[Message]):
         content: str,
         causation_event_id: uuid.UUID,
         platform_message_id: str | None = None,
+        sender_type: str | None = None,
         **kwargs: Any,
     ) -> tuple[Message, bool]:
         """Создать один inbound/outbound-эффект на входящее событие.
@@ -78,6 +81,7 @@ class MessageRepository(BaseRepository[Message]):
             "conversation_id": conversation_id,
             "direction": direction,
             "content": content,
+            "sender_type": sender_type or self._default_sender_type(direction),
             "platform_message_id": platform_message_id,
             "causation_event_id": causation_event_id,
             **kwargs,
@@ -120,3 +124,11 @@ class MessageRepository(BaseRepository[Message]):
         )
         # Разворачиваем список, чтобы история шла от старого к новому (для LLM)
         return list(reversed(result.scalars().all()))
+
+    @staticmethod
+    def _default_sender_type(direction: str) -> str:
+        if direction == "inbound":
+            return "client"
+        if direction == "outbound":
+            return "bot"
+        raise ValueError(f"Unsupported message direction: {direction}")

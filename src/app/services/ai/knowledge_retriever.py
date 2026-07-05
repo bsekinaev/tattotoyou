@@ -1,96 +1,67 @@
-"""
-Retriever для семантического поиска релевантных FAQ через pgvector.
-Часть RAG-пайплайна: Retrieval-Augmented Generation.
-"""
+"""Retrieval-часть активного RAG-пайплайна."""
 
-from sqlalchemy import text
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.services.ai.embedding_service import generate_embedding
+from app.infrastructure.db.repositories.knowledge_repository import KnowledgeBaseRepository
+from app.services.ai.embedding_service import EmbeddingServiceError, generate_embedding
 
 logger = get_logger(__name__)
+settings = get_settings()
+EmbeddingGenerator = Callable[[str], Awaitable[list[float]]]
 
 
 class KnowledgeRetriever:
-    """
-    Semantic search по базе знаний студии.
-    Использует pgvector cosine distance operator <=> для поиска.
-    """
+    """Semantic search с контролируемым keyword fallback."""
 
-    def __init__(self, db: AsyncSession):
-        self.db = db
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        repository: KnowledgeBaseRepository | None = None,
+        embedding_generator: EmbeddingGenerator = generate_embedding,
+    ):
+        self.repository = repository or KnowledgeBaseRepository(db)
+        self.embedding_generator = embedding_generator
 
     async def retrieve(
         self,
         query: str,
-        top_k: int = 3,
-        threshold: float = 0.6,
-    ) -> list[dict]:
-        """
-        Находит top_k самых релевантных FAQ для запроса клиента.
-
-        Args:
-            query: текст запроса клиента
-            top_k: сколько FAQ вернуть
-            threshold: минимальный cosine similarity (0.6 = 60% схожести)
-
-        Returns:
-            Список словарей с вопросами и ответами
-        """
-        # 1. Генерируем эмбеддинг для запроса
-        query_vector = await generate_embedding(query)
-
-        # 2. Cosine distance = 1 - similarity
-        #    similarity >= 0.6  <=>  distance <= 0.4
-        max_distance = 1.0 - threshold
-
-        # 3. SQL с pgvector оператором <=>
-        stmt = text("""
-                    SELECT id,
-                           category,
-                           question,
-                           answer,
-                           keywords,
-                           priority,
-                           1 - (question_vector <=> :query_vec::vector) AS similarity
-                    FROM knowledge_base
-                    WHERE is_active = true
-                      AND question_vector IS NOT NULL
-                      AND (question_vector <=> :query_vec::vector) < :max_dist
-                    ORDER BY question_vector <=> :query_vec::vector ASC
-            LIMIT :limit
-                    """)
-
-        result = await self.db.execute(
-            stmt,
-            {
-                "query_vec": query_vector,
-                "max_dist": max_distance,
-                "limit": top_k,
-            },
-        )
-
-        rows = result.fetchall()
-
-        if not rows:
-            logger.debug("no_relevant_faq_found")
+        *,
+        top_k: int | None = None,
+        threshold: float | None = None,
+    ) -> list[dict[str, object]]:
+        normalized = query.strip()
+        if not settings.rag_enabled or not normalized:
             return []
 
-        faq_items = [
-            {
-                "id": row.id,
-                "category": row.category,
-                "question": row.question,
-                "answer": row.answer,
-                "similarity": float(row.similarity),
-            }
-            for row in rows
-        ]
+        effective_top_k = top_k or settings.rag_top_k
+        effective_threshold = threshold or settings.rag_similarity_threshold
 
-        logger.info(
-            "faq_retrieved",
-            found=len(faq_items),
-            top_similarity=faq_items[0]["similarity"],
-        )
-        return faq_items
+        try:
+            query_vector = await self.embedding_generator(normalized)
+            items = await self.repository.semantic_search(
+                query_vector,
+                top_k=effective_top_k,
+                threshold=effective_threshold,
+            )
+            logger.info(
+                "knowledge_retrieved",
+                source="semantic",
+                found=len(items),
+                threshold=effective_threshold,
+                top_similarity=(items[0].get("similarity") if items else None),
+            )
+            return items
+        except EmbeddingServiceError as exc:
+            logger.warning(
+                "embedding_unavailable_using_keyword_fallback", error_type=type(exc).__name__
+            )
+            items = await self.repository.keyword_search(normalized, limit=effective_top_k)
+            logger.info("knowledge_retrieved", source="keyword", found=len(items))
+            return items

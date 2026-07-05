@@ -75,6 +75,35 @@ class Settings(BaseSettings):
     gigachat_scope: str = "GIGACHAT_API_PERS"
     gigachat_model: str = "GigaChat-Pro"
     gigachat_ca_bundle: Path | None = None
+    gigachat_max_attempts: int = Field(default=3, ge=1, le=10)
+    gigachat_retry_base_seconds: float = Field(default=1.0, ge=0.1, le=60.0)
+    gigachat_retry_max_seconds: float = Field(default=15.0, ge=0.1, le=300.0)
+    gigachat_retry_jitter_seconds: float = Field(default=0.5, ge=0.0, le=10.0)
+    gigachat_token_lock_ttl_seconds: int = Field(default=15, ge=5, le=120)
+    gigachat_token_lock_wait_seconds: float = Field(default=10.0, ge=1.0, le=120.0)
+    gigachat_token_lock_poll_seconds: float = Field(default=0.1, ge=0.01, le=5.0)
+    gigachat_max_output_tokens: int = Field(default=700, ge=64, le=4096)
+
+    # Ограничения контекста и ответа LLM.
+    ai_history_max_messages: int = Field(default=12, ge=1, le=100)
+    ai_history_max_chars: int = Field(default=12000, ge=1000, le=100000)
+    ai_response_max_chars: int = Field(default=4000, ge=256, le=12000)
+    telegram_message_chunk_size: int = Field(default=4000, ge=256, le=4096)
+
+    # ============================================
+    # RAG / KNOWLEDGE BASE
+    # ============================================
+    rag_enabled: bool = True
+    rag_top_k: int = Field(default=3, ge=1, le=10)
+    rag_similarity_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+    rag_required_intents: str = "pricing,booking,aftercare,portfolio"
+    embedding_model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    embedding_dimension: int = Field(default=384, ge=8, le=4096)
+    embedding_backfill_batch_size: int = Field(default=32, ge=1, le=500)
+
+    @property
+    def rag_required_intent_set(self) -> set[str]:
+        return {item.strip() for item in self.rag_required_intents.split(",") if item.strip()}
 
     # ============================================
     # DATABASE
@@ -103,6 +132,15 @@ class Settings(BaseSettings):
     incoming_event_processing_timeout_seconds: int = Field(default=300, ge=30, le=86400)
     incoming_event_recovery_interval_seconds: int = Field(default=60, ge=10, le=3600)
     incoming_event_recovery_batch_size: int = Field(default=100, ge=1, le=1000)
+
+    # ============================================
+    # OUTBOUND DELIVERY OUTBOX
+    # ============================================
+    outbound_delivery_max_attempts: int = Field(default=6, ge=1, le=100)
+    outbound_delivery_retry_base_seconds: int = Field(default=5, ge=1, le=3600)
+    outbound_delivery_processing_timeout_seconds: int = Field(default=300, ge=30, le=86400)
+    outbound_delivery_recovery_interval_seconds: int = Field(default=30, ge=10, le=3600)
+    outbound_delivery_recovery_batch_size: int = Field(default=100, ge=1, le=1000)
 
     # ============================================
     # SECURITY
