@@ -11,17 +11,20 @@ Production-ready FastAPI application с:
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
+from pathlib import Path
 
 import redis.asyncio as aioredis
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
 # 🆕 Admin API
 from app.api.admin.conversations import router as admin_conversations_router
 from app.api.admin.knowledge import router as admin_knowledge_router
+from app.api.studio.dashboard import router as studio_router
 from app.api.webhooks.telegram import router as telegram_router
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
@@ -133,6 +136,12 @@ def create_app() -> FastAPI:
         docs_url="/docs" if settings.debug else None,
         redoc_url="/redoc" if settings.debug else None,
         lifespan=lifespan,
+    )
+
+    app.mount(
+        "/studio/static",
+        StaticFiles(directory=Path(__file__).resolve().parent / "static"),
+        name="studio-static",
     )
 
     # ============================================
@@ -262,11 +271,13 @@ def create_app() -> FastAPI:
             "docs": "/docs" if settings.debug else "disabled in production",
             "liveness": "/live",
             "readiness": "/ready",
+            "studio": "/studio/",
         }
 
     # ============================================
     # ПОДКЛЮЧЕНИЕ РОУТЕРОВ
     # ============================================
+    app.include_router(studio_router, prefix="/studio", include_in_schema=False)
     app.include_router(telegram_router, prefix="/webhook", tags=["webhooks"])
     app.include_router(
         admin_knowledge_router,

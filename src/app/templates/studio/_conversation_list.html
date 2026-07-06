@@ -1,0 +1,31 @@
+{% if items %}
+<section class="conversation-grid">
+  {% for item in items %}
+  <a class="conversation-card status-{{ item.status }}" href="/studio/conversations/{{ item.id }}">
+    <div class="conversation-card-head">
+      <div>
+        <strong>{{ item.display_name }}</strong>
+        <span class="client-handle">
+          {% if item.username %}@{{ item.username }}{% else %}{{ item.platform }} · {{ item.external_id }}{% endif %}
+        </span>
+      </div>
+      {% if item.unread_count %}<span class="unread-badge">{{ item.unread_count }}</span>{% endif %}
+    </div>
+    <div class="badge-row">
+      <span class="status-badge status-{{ item.status }}">{{ status_labels[item.status] }}</span>
+      <span class="lead-badge">{{ lead_status_labels[item.lead_status] }}</span>
+    </div>
+    <p class="message-preview">
+      {% if item.latest_sender_type == 'client' %}<b>Клиент:</b>{% elif item.latest_sender_type == 'human' %}<b>Соня:</b>{% else %}<b>AI:</b>{% endif %}
+      {{ item.latest_message or 'Сообщений пока нет' }}
+    </p>
+    <time>{{ item.last_activity_at.strftime('%d.%m.%Y %H:%M') }}</time>
+  </a>
+  {% endfor %}
+</section>
+{% else %}
+<section class="empty-state">
+  <h2>Диалогов не найдено</h2>
+  <p>Измени фильтр или поисковый запрос.</p>
+</section>
+{% endif %}

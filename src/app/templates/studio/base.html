@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>{% block title %}ТАТТУТУЮ — панель Сони{% endblock %}</title>
+  <link rel="stylesheet" href="{{ request.url_for('studio-static', path='studio.css') }}">
+  <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/studio/conversations">
+      <span class="brand-mark">Т</span>
+      <span>
+        <strong>ТАТТУТУЮ</strong>
+        <small>рабочее место Сони</small>
+      </span>
+    </a>
+    <nav class="topbar-actions">
+      <a href="/studio/conversations">Диалоги</a>
+      <form method="post" action="/studio/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="link-button" type="submit">Выйти</button>
+      </form>
+    </nav>
+  </header>
+  <main class="page-shell">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

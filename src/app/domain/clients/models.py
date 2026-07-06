@@ -4,9 +4,20 @@ ORM-модели для домена "Клиенты".
 
 from __future__ import annotations
 
+from datetime import date
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.infrastructure.db.base import Base
@@ -50,6 +61,12 @@ class Client(Base):
 
     __table_args__ = (
         UniqueConstraint("platform_id", "external_id", name="uq_client_platform_external"),
+        CheckConstraint(
+            "lead_status IN ('new', 'qualification', 'consultation', "
+            "'waiting_payment', 'booked', 'completed', 'lost')",
+            name="ck_clients_lead_status",
+        ),
+        Index("ix_clients_lead_status", "lead_status"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -68,6 +85,21 @@ class Client(Base):
     is_vip: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     ban_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    lead_status: Mapped[str] = mapped_column(
+        String(30),
+        default="new",
+        server_default="new",
+        nullable=False,
+        comment="Этап клиента в продуктовой воронке",
+    )
+    internal_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tattoo_idea: Mapped[str | None] = mapped_column(Text, nullable=True)
+    placement: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    size_details: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    style_preferences: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    budget_details: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    desired_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     # Связи
     platform: Mapped[Platform] = relationship(back_populates="clients")
