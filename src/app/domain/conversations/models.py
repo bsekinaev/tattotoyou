@@ -93,6 +93,12 @@ class Conversation(Base):
         index=True,
     )
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+        comment="Когда Соня последний раз открывала диалог в панели",
+    )
 
     # Связи
     client: Mapped[Client] = relationship(back_populates="conversations")

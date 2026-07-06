@@ -1,0 +1,40 @@
+{% extends "studio/base.html" %}
+{% block title %}Диалоги — ТАТТУТУЮ{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div>
+    <p class="eyebrow">Клиенты</p>
+    <h1>Диалоги</h1>
+    <p class="muted">Сначала показываются обращения, где нужен ответ Сони.</p>
+  </div>
+</section>
+
+<section class="toolbar-card">
+  <form method="get" action="/studio/conversations" class="filters-form">
+    <label>
+      Состояние
+      <select name="status">
+        <option value="open" {% if current_status == 'open' %}selected{% endif %}>Открытые</option>
+        <option value="escalated" {% if current_status == 'escalated' %}selected{% endif %}>Нужна Соня</option>
+        <option value="human_owned" {% if current_status == 'human_owned' %}selected{% endif %}>Соня отвечает</option>
+        <option value="active" {% if current_status == 'active' %}selected{% endif %}>AI отвечает</option>
+        <option value="closed" {% if current_status == 'closed' %}selected{% endif %}>Закрытые</option>
+        <option value="spam" {% if current_status == 'spam' %}selected{% endif %}>Спам</option>
+        <option value="all" {% if current_status == 'all' %}selected{% endif %}>Все</option>
+      </select>
+    </label>
+    <label class="grow-field">
+      Поиск
+      <input name="q" value="{{ search }}" placeholder="Имя, username, идея или текст сообщения">
+    </label>
+    <button class="secondary-button" type="submit">Найти</button>
+  </form>
+</section>
+
+<div id="conversation-list"
+     hx-get="/studio/fragments/conversations?status={{ current_status }}&q={{ search | urlencode }}"
+     hx-trigger="every 10s"
+     hx-swap="innerHTML">
+  {% include "studio/_conversation_list.html" %}
+</div>
+{% endblock %}

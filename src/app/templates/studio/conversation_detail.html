@@ -1,0 +1,125 @@
+{% extends "studio/base.html" %}
+{% block title %}{{ detail.client.display_name or 'Гость' }} — ТАТТУТУЮ{% endblock %}
+{% block content %}
+<div class="detail-header">
+  <div>
+    <a class="back-link" href="/studio/conversations">← Все диалоги</a>
+    <p class="eyebrow">Диалог</p>
+    <h1>{{ detail.client.display_name or 'Гость' }}</h1>
+    <p class="muted">
+      {% if detail.client.username %}@{{ detail.client.username }} · {% endif %}
+      {{ detail.platform.name }} · ID {{ detail.client.external_id }}
+    </p>
+  </div>
+  <div class="badge-row detail-badges">
+    <span class="status-badge status-{{ detail.conversation.status }}">{{ status_labels[detail.conversation.status] }}</span>
+    <span class="lead-badge">{{ lead_status_labels[detail.client.lead_status] }}</span>
+  </div>
+</div>
+
+{% if notice %}<div class="alert alert-success">{{ notice }}</div>{% endif %}
+
+<div class="detail-layout">
+  <section class="dialog-column">
+    <div class="panel-card action-card">
+      <div class="action-buttons">
+        {% if detail.conversation.status in ('active', 'escalated') %}
+        <form method="post" action="/studio/conversations/{{ detail.conversation.id }}/actions/takeover">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="primary-button" type="submit">Взять диалог</button>
+        </form>
+        {% endif %}
+        {% if detail.conversation.status in ('escalated', 'human_owned') %}
+        <form method="post" action="/studio/conversations/{{ detail.conversation.id }}/actions/return_to_ai">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="secondary-button" type="submit">Вернуть AI</button>
+        </form>
+        {% endif %}
+        {% if detail.conversation.status in ('active', 'escalated', 'human_owned') %}
+        <form method="post" action="/studio/conversations/{{ detail.conversation.id }}/actions/close">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="danger-button" type="submit">Закрыть</button>
+        </form>
+        {% endif %}
+      </div>
+      <div class="conversation-metrics">
+        <span>AI: {{ detail.conversation.ai_messages_count }}</span>
+        <span>Соня: {{ detail.conversation.human_messages_count }}</span>
+      </div>
+    </div>
+
+    <div class="messages-panel">
+      {% for message in detail.messages %}
+      <article class="message message-{{ message.sender_type }}">
+        <header>
+          <strong>
+            {% if message.sender_type == 'client' %}Клиент{% elif message.sender_type == 'human' %}Соня{% elif message.sender_type == 'bot' %}AI-ассистент{% else %}Система{% endif %}
+          </strong>
+          <time>{{ message.created_at.strftime('%d.%m %H:%M') }}</time>
+        </header>
+        <div class="message-body">{{ message.content }}</div>
+        {% set delivery = detail.deliveries.get(message.id) %}
+        {% if delivery %}
+        <footer class="delivery delivery-{{ delivery.status }}">
+          Доставка: {{ delivery.status }}{% if delivery.attempts %} · попыток {{ delivery.attempts }}{% endif %}
+          {% if delivery.last_error_code %} · {{ delivery.last_error_code }}{% endif %}
+        </footer>
+        {% endif %}
+      </article>
+      {% else %}
+      <div class="empty-state compact"><p>В диалоге пока нет сообщений.</p></div>
+      {% endfor %}
+    </div>
+
+    {% if detail.conversation.status != 'closed' and detail.conversation.status != 'spam' %}
+    <form method="post" action="/studio/conversations/{{ detail.conversation.id }}/reply" class="panel-card reply-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>
+        Ответ Сони
+        <textarea name="content" rows="4" maxlength="4000" required placeholder="Напиши клиенту — сообщение будет сохранено в Outbox и доставлено через Telegram"></textarea>
+      </label>
+      <div class="form-footer">
+        <span class="muted">Отправка автоматически переводит диалог под управление Сони.</span>
+        <button class="primary-button" type="submit">Отправить</button>
+      </div>
+    </form>
+    {% endif %}
+  </section>
+
+  <aside class="client-column">
+    <form method="post" action="/studio/conversations/{{ detail.conversation.id }}/client" class="panel-card client-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">CRM</p>
+          <h2>Карточка клиента</h2>
+        </div>
+      </div>
+      <label>
+        Этап
+        <select name="lead_status">
+          {% for status in lead_statuses %}
+          <option value="{{ status }}" {% if detail.client.lead_status == status %}selected{% endif %}>{{ lead_status_labels[status] }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Идея татуировки
+        <textarea name="tattoo_idea" rows="4" maxlength="5000">{{ detail.client.tattoo_idea or '' }}</textarea>
+      </label>
+      <div class="two-columns">
+        <label>Место<input name="placement" maxlength="120" value="{{ detail.client.placement or '' }}"></label>
+        <label>Размер<input name="size_details" maxlength="120" value="{{ detail.client.size_details or '' }}"></label>
+      </div>
+      <label>Стиль<input name="style_preferences" maxlength="200" value="{{ detail.client.style_preferences or '' }}"></label>
+      <label>Бюджет<input name="budget_details" maxlength="120" value="{{ detail.client.budget_details or '' }}"></label>
+      <label>Желаемая дата<input type="date" name="desired_date" value="{{ detail.client.desired_date.isoformat() if detail.client.desired_date else '' }}"></label>
+      <label>
+        Заметки Сони
+        <textarea name="internal_notes" rows="5" maxlength="5000">{{ detail.client.internal_notes or '' }}</textarea>
+      </label>
+      <button class="primary-button full-width" type="submit">Сохранить карточку</button>
+    </form>
+  </aside>
+</div>
+{% endblock %}
