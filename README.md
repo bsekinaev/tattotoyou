@@ -43,7 +43,8 @@ Telegram-ассистент для обработки типовых обращ�
 - структурированное логирование;
 - миграции Alembic;
 - встроенная панель Сони с CRM-карточкой, заявками на тату и расписанием;
-- Docker Compose и GitHub Actions.
+- Docker Compose и многоступенчатый GitHub Actions quality gate;
+- зафиксированное окружение зависимостей через `uv.lock`.
 
 ## Архитектура
 
@@ -113,7 +114,7 @@ Inbox и Outbox сохраняют работу до обращения к Redis
 | AI | GigaChat API, OAuth2, sentence-transformers, pgvector/RAG |
 | HTTP | httpx |
 | Tests | pytest, pytest-asyncio, pytest-cov |
-| Quality | Ruff, GitHub Actions |
+| Quality | Ruff, uv lock, GitHub Actions, coverage gate |
 | Infrastructure | Docker, Docker Compose |
 | Logging | structlog |
 
@@ -170,15 +171,48 @@ GET /health # совместимый alias для /ready
 
 Readiness-ответ не раскрывает внутренние тексты инфраструктурных исключений.
 
-## Тестирование
+## Тестирование и quality gates
+
+Установить воспроизводимое окружение из lock-файла:
 
 ```bash
-python -m pytest tests/unit -v --cov=src/app
+uv sync --locked --extra dev
+```
+
+Запустить unit-тесты с текущим минимальным порогом покрытия 73%:
+
+```bash
+uv run --locked --extra dev python -m pytest tests/unit -v \
+  --cov=src/app --cov-report=term-missing --cov-fail-under=73
 ```
 
 Unit-тесты проверяют классификацию запросов, эскалацию, state machine диалога, Transactional Outbox, классификацию ошибок доставки, retry/refresh GigaChat, bounded prompt, AI fallback, banned-клиентов, loop-local DB session, Telegram chunking, аутентификацию Admin API, webhook secret, TLS, минимизацию PII, PostgreSQL Inbox и health endpoints.
 
-Интеграционные проверки PostgreSQL и конкурентных инвариантов запускаются отдельно на реальной тестовой базе.
+Проверить линейность Alembic-истории без подключения к БД:
+
+```bash
+uv run --locked --extra dev python scripts/check_migration_graph.py
+```
+
+Интеграционные тесты требуют чистую мигрированную PostgreSQL с расширением pgvector:
+
+```bash
+export TEST_POSTGRES_DSN=postgresql://postgres:postgres@127.0.0.1:5432/tattutuy_test
+uv run --locked --extra dev alembic upgrade head
+uv run --locked --extra dev python -m pytest tests/integration -v --no-cov
+```
+
+GitHub Actions теперь выполняет три независимых уровня проверки:
+
+1. Python 3.11/3.12 — syntax, Ruff, единый Alembic head и unit coverage gate.
+2. PostgreSQL 15 + pgvector и Redis — миграции с пустой БД и integration-тесты конкурентных инвариантов.
+3. Docker — валидация production/development Compose, сборка образа строго из `uv.lock` и import/config smoke-test.
+
+Строгий `mypy` остаётся отдельным диагностическим этапом до планового погашения накопленного type debt:
+
+```bash
+python scripts/validate_repository.py --type-check
+```
 
 ## Backend API оператора
 
@@ -246,7 +280,8 @@ RAG использует cosine similarity в pgvector. Для намерени�
 - [x] loop-local DB engine для Celery и лимиты контекста/ответа
 - [x] административный интерфейс оператора
 - [x] заявки на тату, state machine воронки и управление записью
-- [ ] расширенные интеграционные и нагрузочные тесты
+- [x] PostgreSQL integration-тесты и migration smoke в CI
+- [ ] нагрузочные, e2e и chaos-тесты
 - [ ] метрики и dashboard observability
 
 ## Панель Сони
@@ -277,7 +312,7 @@ cookie на 12 часов и защищает изменяющие формы CS
 python -m alembic upgrade head
 ```
 
-Актуальный head после панели: `g7b8c9d0e1f2`.
+Актуальный Alembic head: `h8c9d0e1f2a3`.
 
 ## Заявки на тату и запись
 
@@ -314,6 +349,11 @@ python -m alembic upgrade head
 ```
 
 Актуальный Alembic head: `h8c9d0e1f2a3`.
+
+## Документация развития
+
+- [Production roadmap](docs/PRODUCTION_ROADMAP.md)
+- [Validation baseline](docs/BASELINE.md)
 
 ## Автор
 

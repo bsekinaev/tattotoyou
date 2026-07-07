@@ -15,7 +15,6 @@ htmlcov/
 dist/
 build/
 /repomix-output.xml
-/uv.lock
 ngrok
 ngrok.exe
 *.exe

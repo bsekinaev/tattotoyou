@@ -1,97 +1,77 @@
 # Repository validation baseline
 
-Date: 2026-06-23  
-Snapshot: `repomix-output(14).xml`
+Date: 2026-07-07  
+Snapshot: `repomix-output.xml`
 
-This document records the state observed before stabilization changes. It is not
-a production-readiness claim. A check is considered fixed only after its command
-passes in CI and locally on a clean environment.
+Этот документ фиксирует проверяемую инженерную базу проекта. Он не является
+утверждением о production-ready статусе: интеграционный и container-контуры
+считаются подтверждёнными только после зелёного запуска GitHub Actions.
 
-## Active execution path
-
-The current Telegram request path is:
+## Активный execution path
 
 ```text
 POST /webhook/telegram
-  -> TelegramUpdate validation
-  -> secret-token comparison
-  -> Redis rate limit and SETNX deduplication
-  -> process_telegram_update_task
-  -> TelegramAdapter.parse_message
-  -> ConversationService.process_message
-  -> repositories / GigaChat / escalation
+  -> Secret Token + body limit + Redis rate limit
+  -> PostgreSQL IncomingEvent Inbox
+  -> Celery process_telegram_update_task
+  -> ConversationService / RAG / GigaChat / escalation
+  -> Message + PostgreSQL Transactional Outbox
+  -> Celery deliver_outbound_message_task
+  -> Telegram Bot API
 ```
 
-`src/app/services/platforms/telegram/service.py` defines the older
-`TelegramMessageService`. Repository-wide reference search found no imports of
-that class outside its own module, while the active Celery task uses
-`ConversationService`.
+Celery Beat восстанавливает готовые и зависшие Inbox/Outbox записи. Ручной
+ответ Сони также сохраняется через Outbox. Панель управляет handoff-состояниями,
+заявками, предоплатой и расписанием.
 
-## Validation commands
+## Локальный baseline
 
-Run the complete local validation suite:
+Проверено на извлечённом snapshot:
+
+- Ruff lint: PASS;
+- Ruff format: PASS;
+- Alembic graph: одна base `2b5c075445e1`, один head `h8c9d0e1f2a3`;
+- unit tests: **181 PASS**;
+- statement coverage: **73.40%**;
+- coverage gate: **73%**.
+
+Полный PostgreSQL integration и Docker build не исполнялись в текущем
+контейнерном окружении из-за отсутствия Docker daemon. Их выполняет обновлённый
+GitHub Actions workflow.
+
+## Канонические команды
 
 ```bash
-python scripts/validate_repository.py
+uv sync --locked --extra dev
+uv run --locked --extra dev ruff check src tests scripts migrations
+uv run --locked --extra dev ruff format --check src tests scripts migrations
+uv run --locked --extra dev python scripts/check_migration_graph.py
+uv run --locked --extra dev python -m pytest tests/unit -v \
+  --cov=src/app --cov-fail-under=73
 ```
 
-Run only syntax and Ruff checks:
+PostgreSQL integration:
 
 ```bash
-python scripts/validate_repository.py --quick
+uv run --locked --extra dev alembic upgrade head
+uv run --locked --extra dev alembic current --check-heads
+uv run --locked --extra dev python -m pytest tests/integration -v --no-cov
 ```
 
-## Observed failures before stabilization
+Строгая типизация пока является отдельным диагностическим этапом:
 
-### Python syntax
-
-```text
-src/app/services/platforms/telegram/service.py:143
-SyntaxError: invalid syntax
+```bash
+python scripts/validate_repository.py --type-check
 ```
 
-The invalid legacy module prevents `compileall`, Ruff formatting, and mypy from
-analysing the complete codebase.
+Её нельзя объявлять зелёной до планового устранения type debt; массовые
+`ignore` не считаются исправлением.
 
-### Ruff
+## Инварианты развития
 
-The initial run reported 61 findings, including:
-
-- the syntax error in the legacy Telegram service;
-- unsorted imports;
-- missing final newlines;
-- one unused import;
-- an empty concrete method in an abstract base class;
-- formatting drift across multiple files.
-
-Formatting changes must be committed separately from business-logic changes.
-
-### Unit tests
-
-Running tests directly in the system Python environment failed during collection
-because project dependencies such as `structlog` and `redis` were not installed.
-The canonical command therefore runs tests through `uv` with the `dev` extra.
-
-### Migrations and RAG dependencies
-
-The pgvector migration imports `pgvector.sqlalchemy`, while `pgvector` is not
-declared in `pyproject.toml`. The embedding service imports
-`sentence_transformers`, which is also not declared. Migration and runtime RAG
-validation cannot be considered reproducible until both dependencies are added
-and locked.
-
-### Docker
-
-`docker-compose.yml` contains services with `build: .`, but no Dockerfile exists
-in the snapshot. Docker build validation is expected to fail until the build
-stage is implemented.
-
-## Baseline invariants
-
-During stabilization:
-
-1. No business feature is marked complete unless it is used by the active path.
-2. Syntax, lint, typing, migrations, tests, and container build are separate gates.
-3. A formatting-only commit must not change behaviour.
-4. Legacy code is removed only after repository-wide reference verification.
-5. README statements must match executable code and automated tests.
+1. Новая бизнес-функция сопровождается unit или integration-тестом.
+2. Миграции всегда проверяются на пустой PostgreSQL с pgvector.
+3. В проекте должен оставаться ровно один Alembic head.
+4. Внешний ответ сначала фиксируется в БД, затем отправляется платформе.
+5. Чувствительные сценарии используют handoff, а не неподтверждённую генерацию.
+6. README и roadmap отражают только исполняемое и проверяемое поведение.

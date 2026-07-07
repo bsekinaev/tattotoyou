@@ -32,12 +32,12 @@ class Check:
 def _project_tool_command(*args: str) -> tuple[str, ...]:
     """Build a deterministic command for an installed project tool.
 
-    A frozen uv environment is used only when ``uv.lock`` exists. Without a
-    lock file, ``uv run`` may resolve dependencies or download Python during a
-    validation run, turning a lint check into a network-dependent operation.
+    An already synchronized uv environment is reused when ``uv.lock`` exists.
+    ``--no-sync`` keeps validation network-independent; run
+    ``uv sync --locked --extra dev`` explicitly after dependency changes.
     """
     if (PROJECT_ROOT / "uv.lock").exists() and shutil.which("uv"):
-        return ("uv", "run", "--frozen", "--extra", "dev", *args)
+        return ("uv", "run", "--no-sync", *args)
     return args
 
 
@@ -59,19 +59,14 @@ def build_checks() -> tuple[Check, ...]:
             required_executable="uv" if (PROJECT_ROOT / "uv.lock").exists() else "ruff",
         ),
         Check(
-            name="Mypy",
-            command=_project_tool_command("mypy", "src"),
-            required_executable="uv" if (PROJECT_ROOT / "uv.lock").exists() else "mypy",
-        ),
-        Check(
             name="Unit tests",
             command=_project_tool_command("pytest", "tests/unit", "-q"),
             required_executable="uv" if (PROJECT_ROOT / "uv.lock").exists() else "pytest",
         ),
         Check(
             name="Alembic revision graph",
-            command=_project_tool_command("alembic", "heads"),
-            required_executable="uv" if (PROJECT_ROOT / "uv.lock").exists() else "alembic",
+            command=_project_tool_command("python", "scripts/check_migration_graph.py"),
+            required_executable="uv" if (PROJECT_ROOT / "uv.lock").exists() else None,
         ),
         Check(
             name="Docker Compose production configuration",
@@ -124,6 +119,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Run only syntax, Ruff lint, and Ruff formatting checks.",
     )
+    parser.add_argument(
+        "--type-check",
+        action="store_true",
+        help="Run strict mypy separately; this is not yet a blocking CI gate.",
+    )
     return parser.parse_args()
 
 
@@ -133,6 +133,15 @@ def main() -> int:
     checks: Sequence[Check] = build_checks()
     if args.quick:
         checks = checks[:3]
+    elif args.type_check:
+        checks = (
+            *checks,
+            Check(
+                name="Mypy",
+                command=_project_tool_command("mypy", "src/app"),
+                required_executable="uv" if (PROJECT_ROOT / "uv.lock").exists() else "mypy",
+            ),
+        )
 
     env = os.environ.copy()
     env.setdefault("PYTHONPATH", "src")

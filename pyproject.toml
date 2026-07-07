@@ -85,7 +85,13 @@ markers = [
 # MYPY
 # ============================================
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 ignore_missing_imports = true
 plugins = ["pydantic.mypy"]
+# ============================================
+# COVERAGE BASELINE
+# ============================================
+[tool.coverage.report]
+show_missing = true
+fail_under = 73
