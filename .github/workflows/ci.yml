@@ -6,10 +6,32 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+env:
+  UV_DEFAULT_INDEX: https://pypi.org/simple
+  PYTHONPATH: src
+  TELEGRAM_BOT_TOKEN: test_token
+  TELEGRAM_WEBHOOK_SECRET: test_secret
+  TELEGRAM_ADMIN_CHAT_ID: "123456"
+  GIGACHAT_CLIENT_ID: test_id
+  GIGACHAT_CLIENT_SECRET: test_secret
+  POSTGRES_PASSWORD: test_password
+  REDIS_PASSWORD: test_redis_password
+  SECRET_KEY: test_secret_key_at_least_32_chars_long
+  ADMIN_API_KEY: test_admin_key_at_least_32_chars_long
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  lint-and-test:
+  quality:
+    name: Quality / Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.11", "3.12"]
 
@@ -23,42 +45,150 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        run: python -m pip install "uv==0.10.0"
 
-      - name: Install dependencies
-        run: |
-          uv pip install --system -e ".[dev]"
+      - name: Install locked dependencies
+        run: uv sync --locked --extra dev --python "${{ matrix.python-version }}"
 
       - name: Validate Python syntax
-        run: |
-          python -m compileall -q src tests scripts migrations
+        run: uv run --locked --extra dev python -m compileall -q src tests scripts migrations
 
-      - name: Run Ruff linter
+      - name: Run Ruff
         run: |
-          ruff check src/ tests/ scripts/ migrations/
-          ruff format --check src/ tests/ scripts/ migrations/
+          uv run --locked --extra dev ruff check src tests scripts migrations
+          uv run --locked --extra dev ruff format --check src tests scripts migrations
 
-      - name: Run tests with coverage
-        run: |
-          python -m pytest tests/unit -v --cov=src/app --cov-report=xml --cov-report=term-missing
-        env:
-          PYTHONPATH: src
-          TELEGRAM_BOT_TOKEN: "test_token"
-          TELEGRAM_WEBHOOK_SECRET: "test_secret"
-          TELEGRAM_ADMIN_CHAT_ID: "123456"
-          GIGACHAT_CLIENT_ID: "test_id"
-          GIGACHAT_CLIENT_SECRET: "test_secret"
-          POSTGRES_PASSWORD: "test_password"
-          SECRET_KEY: "test_secret_key_at_least_32_chars_long"
-          ADMIN_API_KEY: "test_admin_key_at_least_32_chars_long"
+      - name: Validate Alembic revision graph
+        run: uv run --locked --extra dev python scripts/check_migration_graph.py
 
+      - name: Run unit tests with coverage gate
+        run: >-
+          uv run --locked --extra dev python -m pytest tests/unit -v
+          --cov=src/app
+          --cov-report=xml
+          --cov-report=term-missing
+          --cov-fail-under=73
       - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.12'
         uses: codecov/codecov-action@v4
         with:
           file: ./coverage.xml
-          flags: unittests
-          name: codecov-umbrella
+          flags: unit
+          name: unit-python-3.12
+          fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  integration:
+    name: PostgreSQL integration
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_DB: tattutuy_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d tattutuy_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: tattutuy_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+      REDIS_PASSWORD: ""
+      STARTUP_REQUIRE_DEPENDENCIES: "true"
+      RAG_ENABLED: "false"
+      TEST_POSTGRES_DSN: postgresql://postgres:postgres@127.0.0.1:5432/tattutuy_test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: python -m pip install "uv==0.10.0"
+
+      - name: Install locked dependencies
+        run: uv sync --locked --extra dev --python 3.12
+
+      - name: Validate migration graph
+        run: uv run --locked --extra dev python scripts/check_migration_graph.py
+
+      - name: Check infrastructure
+        run: uv run --locked --extra dev python scripts/check_infrastructure.py
+
+      - name: Apply migrations from an empty database
+        run: |
+          uv run --locked --extra dev alembic upgrade head
+          uv run --locked --extra dev alembic current --check-heads
+
+      - name: Run PostgreSQL integration tests
+        run: >-
+          uv run --locked --extra dev python -m pytest tests/integration -v --no-cov
+
+  container:
+    name: Container and Compose smoke
+    runs-on: ubuntu-latest
+    needs: [quality, integration]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create CI environment file
+        run: |
+          cat > .env <<'ENVEOF'
+          TELEGRAM_BOT_TOKEN=test_token
+          TELEGRAM_WEBHOOK_SECRET=test_secret
+          TELEGRAM_ADMIN_CHAT_ID=123456
+          GIGACHAT_CLIENT_ID=test_id
+          GIGACHAT_CLIENT_SECRET=test_secret
+          POSTGRES_DB=tattoo_assistant
+          POSTGRES_USER=tattoo_user
+          POSTGRES_PASSWORD=test_postgres_password
+          REDIS_DB=0
+          REDIS_PASSWORD=test_redis_password
+          SECRET_KEY=test_secret_key_at_least_32_chars_long
+          ADMIN_API_KEY=test_admin_key_at_least_32_chars_long
+          ENVEOF
+
+      - name: Validate Docker Compose configuration
+        run: |
+          docker compose -f docker-compose.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+
+      - name: Build production image from lock file
+        run: docker build --pull --tag "tattutuy-ci:${GITHUB_SHA}" .
+
+      - name: Smoke-check image configuration and imports
+        run: |
+          docker run --rm --env-file .env "tattutuy-ci:${GITHUB_SHA}" \
+            python scripts/check_configuration.py
+          docker run --rm --env-file .env "tattutuy-ci:${GITHUB_SHA}" \
+            python -m compileall -q src scripts migrations
