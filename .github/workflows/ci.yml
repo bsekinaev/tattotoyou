@@ -68,16 +68,13 @@ jobs:
           --cov-report=xml
           --cov-report=term-missing
           --cov-fail-under=73
-      - name: Upload coverage to Codecov
-        if: matrix.python-version == '3.12'
-        uses: codecov/codecov-action@v4
+
+      - name: Загрузить покрытие в Codecov
+        uses: codecov/codecov-action@v7.0.0
         with:
-          file: ./coverage.xml
-          flags: unit
-          name: unit-python-3.12
-          fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   integration:
     name: PostgreSQL integration
