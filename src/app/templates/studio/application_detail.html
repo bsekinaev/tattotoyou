@@ -1,0 +1,142 @@
+{% extends "studio/base.html" %}
+{% block title %}Заявка {{ detail.client.display_name or 'Гость' }} — ТАТТУТУЮ{% endblock %}
+{% block content %}
+<div class="detail-header">
+  <div>
+    <a class="back-link" href="/studio/applications">← Все заявки</a>
+    <p class="eyebrow">Тату-проект</p>
+    <h1>{{ detail.client.display_name or 'Гость' }}</h1>
+    <p class="muted">
+      {% if detail.client.username %}@{{ detail.client.username }} · {% endif %}
+      {{ detail.platform.name }}
+      {% if detail.conversation %} · <a href="/studio/conversations/{{ detail.conversation.id }}">открыть диалог</a>{% endif %}
+    </p>
+  </div>
+  <div class="badge-row detail-badges">
+    <span class="status-badge status-{{ detail.application.status }}">{{ application_status_labels[detail.application.status] }}</span>
+    {% if detail.appointment %}<span class="lead-badge">{{ appointment_status_labels[detail.appointment.status] }}</span>{% endif %}
+  </div>
+</div>
+
+{% if notice %}<div class="alert alert-success">{{ notice }}</div>{% endif %}
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<div class="booking-layout">
+  <section class="booking-main">
+    <form method="post" action="/studio/applications/{{ detail.application.id }}/update" class="panel-card booking-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="panel-heading">
+        <div><p class="eyebrow">Бриф</p><h2>Параметры проекта</h2></div>
+      </div>
+      <label>Идея<textarea name="idea" rows="5" maxlength="5000">{{ detail.application.idea or '' }}</textarea></label>
+      <div class="two-columns">
+        <label>Место<input name="placement" maxlength="120" value="{{ detail.application.placement or '' }}"></label>
+        <label>Размер<input name="size_details" maxlength="120" value="{{ detail.application.size_details or '' }}"></label>
+      </div>
+      <div class="two-columns">
+        <label>
+          Цвет
+          <select name="color_mode">
+            {% for value, label in color_mode_labels.items() %}
+            <option value="{{ value }}" {% if detail.application.color_mode == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Стиль<input name="style_preferences" maxlength="200" value="{{ detail.application.style_preferences or '' }}"></label>
+      </div>
+      <div class="three-columns">
+        <label>Бюджет от<input type="number" min="0" name="budget_min" value="{{ detail.application.budget_min if detail.application.budget_min is not none else '' }}"></label>
+        <label>Бюджет до<input type="number" min="0" name="budget_max" value="{{ detail.application.budget_max if detail.application.budget_max is not none else '' }}"></label>
+        <label>Желаемая дата<input type="date" name="desired_date" value="{{ detail.application.desired_date.isoformat() if detail.application.desired_date else '' }}"></label>
+      </div>
+      <label>Комментарий клиента<textarea name="client_comment" rows="3" maxlength="5000">{{ detail.application.client_comment or '' }}</textarea></label>
+      <label>Заметки Сони<textarea name="internal_notes" rows="4" maxlength="5000">{{ detail.application.internal_notes or '' }}</textarea></label>
+      <button class="primary-button" type="submit">Сохранить заявку</button>
+    </form>
+
+    <section class="panel-card reference-panel">
+      <div class="panel-heading"><div><p class="eyebrow">Материалы</p><h2>Референсы</h2></div></div>
+      <div class="reference-list">
+        {% for reference in detail.references %}
+        <article class="reference-item">
+          <strong>{% if reference.reference_type == 'url' %}Ссылка{% else %}Telegram file_id{% endif %}</strong>
+          {% if reference.reference_type == 'url' %}<a href="{{ reference.value }}" target="_blank" rel="noreferrer">{{ reference.value }}</a>{% else %}<code>{{ reference.value }}</code>{% endif %}
+          {% if reference.caption %}<p>{{ reference.caption }}</p>{% endif %}
+        </article>
+        {% else %}<p class="muted">Референсы пока не добавлены.</p>{% endfor %}
+      </div>
+      <form method="post" action="/studio/applications/{{ detail.application.id }}/references" class="inline-form reference-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>Тип<select name="reference_type"><option value="url">Ссылка</option><option value="telegram_file">Telegram file_id</option></select></label>
+        <label class="grow-field">Значение<input name="value" maxlength="2048" required placeholder="https://... или file_id"></label>
+        <label class="grow-field">Подпись<input name="caption" maxlength="2000"></label>
+        <input type="hidden" name="file_unique_id" value="">
+        <input type="hidden" name="file_name" value="">
+        <input type="hidden" name="source_message_id" value="">
+        <button class="secondary-button" type="submit">Добавить</button>
+      </form>
+    </section>
+  </section>
+
+  <aside class="booking-sidebar">
+    <section class="panel-card stage-panel">
+      <p class="eyebrow">Воронка</p>
+      <h2>{{ application_status_labels[detail.application.status] }}</h2>
+      {% if detail.allowed_transitions %}
+      <div class="stage-actions">
+        {% for target in detail.allowed_transitions %}
+        <form method="post" action="/studio/applications/{{ detail.application.id }}/status/{{ target }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          {% if target in ('canceled', 'rejected') %}<input name="reason" maxlength="2000" placeholder="Причина" required>{% else %}<input type="hidden" name="reason" value="">{% endif %}
+          <button class="{% if target in ('canceled', 'rejected') %}danger-button{% else %}secondary-button{% endif %} full-width" type="submit">{{ application_status_labels[target] }}</button>
+        </form>
+        {% endfor %}
+      </div>
+      {% else %}<p class="muted">Финальный этап.</p>{% endif %}
+    </section>
+
+    <section class="panel-card appointment-form-card">
+      <p class="eyebrow">Сеанс</p>
+      <h2>{% if detail.appointment %}Редактировать запись{% else %}Назначить время{% endif %}</h2>
+      <form method="post" action="/studio/applications/{{ detail.application.id }}/appointment" class="booking-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>Дата и время<input type="datetime-local" name="scheduled_start" required value="{% if detail.appointment %}{{ detail.appointment.scheduled_start.astimezone(studio_timezone).strftime('%Y-%m-%dT%H:%M') }}{% endif %}"></label>
+        <div class="two-columns">
+          <label>Минут<input type="number" min="1" max="1440" name="duration_minutes" required value="{{ detail.appointment.duration_minutes if detail.appointment else 180 }}"></label>
+          <label>Цена ₽<input type="number" min="0" name="quoted_price" value="{{ detail.appointment.quoted_price if detail.appointment and detail.appointment.quoted_price is not none else '' }}"></label>
+        </div>
+        <label>Предоплата ₽<input type="number" min="0" name="deposit_amount" value="{{ detail.appointment.deposit_amount if detail.appointment and detail.appointment.deposit_amount is not none else '' }}"></label>
+        <label>Статус предоплаты<select name="deposit_status">{% for value, label in deposit_status_labels.items() %}<option value="{{ value }}" {% if detail.appointment and detail.appointment.deposit_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        <label>Статус записи<select name="status"><option value="draft" {% if not detail.appointment or detail.appointment.status == 'draft' %}selected{% endif %}>Черновик</option><option value="pending" {% if detail.appointment and detail.appointment.status == 'pending' %}selected{% endif %}>Ожидает подтверждения</option><option value="confirmed" {% if detail.appointment and detail.appointment.status == 'confirmed' %}selected{% endif %}>Подтверждена</option></select></label>
+        <button class="primary-button full-width" type="submit">Сохранить запись</button>
+      </form>
+
+      {% if detail.appointment %}
+      <div class="appointment-actions">
+        {% if detail.appointment.deposit_status == 'pending' %}
+        <form method="post" action="/studio/appointments/{{ detail.appointment.id }}/deposit/paid"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="application_id" value="{{ detail.application.id }}"><button class="secondary-button full-width" type="submit">Предоплата получена</button></form>
+        {% elif detail.appointment.deposit_status == 'paid' and detail.appointment.status == 'canceled' %}
+        <form method="post" action="/studio/appointments/{{ detail.appointment.id }}/deposit/refunded"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="application_id" value="{{ detail.application.id }}"><button class="danger-button full-width" type="submit">Предоплата возвращена</button></form>
+        {% endif %}
+        {% if detail.appointment.status in ('draft', 'pending') %}
+        <form method="post" action="/studio/appointments/{{ detail.appointment.id }}/status/confirmed"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="application_id" value="{{ detail.application.id }}"><input type="hidden" name="reason" value=""><button class="primary-button full-width" type="submit">Подтвердить сеанс</button></form>
+        {% endif %}
+        {% if detail.appointment.status == 'confirmed' %}
+        <form method="post" action="/studio/appointments/{{ detail.appointment.id }}/status/completed"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="application_id" value="{{ detail.application.id }}"><input type="hidden" name="reason" value=""><button class="secondary-button full-width" type="submit">Сеанс завершён</button></form>
+        {% endif %}
+        {% if detail.appointment.status != 'completed' and detail.appointment.status != 'canceled' %}
+        <form method="post" action="/studio/appointments/{{ detail.appointment.id }}/status/canceled"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="application_id" value="{{ detail.application.id }}"><input name="reason" maxlength="2000" placeholder="Причина отмены" required><button class="danger-button full-width" type="submit">Отменить запись</button></form>
+        {% endif %}
+      </div>
+      {% endif %}
+    </section>
+
+    <section class="panel-card history-panel">
+      <p class="eyebrow">История</p>
+      {% for event in detail.history|reverse %}
+      <div class="history-item"><strong>{{ application_status_labels[event.to_status] }}</strong><time>{{ event.created_at.astimezone(studio_timezone).strftime('%d.%m.%Y %H:%M') }}</time>{% if event.reason %}<p>{{ event.reason }}</p>{% endif %}</div>
+      {% else %}<p class="muted">История пока пуста.</p>{% endfor %}
+    </section>
+  </aside>
+</div>
+{% endblock %}

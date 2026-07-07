@@ -1,3 +1,9 @@
+from app.domain.bookings.models import (
+    ApplicationReference,
+    ApplicationStatusHistory,
+    Appointment,
+    TattooApplication,
+)
 from app.domain.clients.models import Client, Platform
 from app.domain.conversations.models import Conversation, Message
 from app.domain.incoming.models import IncomingEvent
@@ -8,6 +14,10 @@ from app.infrastructure.db.base import Base
 __all__ = [
     "Base",
     "Platform",
+    "TattooApplication",
+    "ApplicationReference",
+    "ApplicationStatusHistory",
+    "Appointment",
     "Client",
     "Conversation",
     "Message",

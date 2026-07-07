@@ -1,0 +1,53 @@
+{% extends "studio/base.html" %}
+{% block title %}Заявки — ТАТТУТУЮ{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div>
+    <p class="eyebrow">Воронка</p>
+    <h1>Заявки на тату</h1>
+    <p class="muted">От идеи клиента до подтверждённого сеанса.</p>
+  </div>
+</section>
+
+<section class="toolbar-card">
+  <form method="get" action="/studio/applications" class="filters-form">
+    <label>
+      Этап
+      <select name="status">
+        <option value="active" {% if current_status == 'active' %}selected{% endif %}>Активные</option>
+        {% for value, label in application_status_labels.items() %}
+        <option value="{{ value }}" {% if current_status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+        <option value="all" {% if current_status == 'all' %}selected{% endif %}>Все</option>
+      </select>
+    </label>
+    <label class="grow-field">
+      Поиск
+      <input name="q" value="{{ search }}" placeholder="Имя, идея, место или заметка">
+    </label>
+    <button class="secondary-button" type="submit">Найти</button>
+  </form>
+</section>
+
+<div class="application-grid">
+  {% for item in items %}
+  <a class="application-card status-{{ item.application.status }}" href="/studio/applications/{{ item.application.id }}">
+    <header>
+      <div>
+        <strong>{{ item.client.display_name or 'Гость' }}</strong>
+        <span class="client-handle">{% if item.client.username %}@{{ item.client.username }} · {% endif %}{{ item.platform.name }}</span>
+      </div>
+      <span class="status-badge status-{{ item.application.status }}">{{ application_status_labels[item.application.status] }}</span>
+    </header>
+    <p class="application-idea">{{ item.application.idea or 'Идея пока не заполнена' }}</p>
+    <div class="application-meta">
+      {% if item.application.placement %}<span>📍 {{ item.application.placement }}</span>{% endif %}
+      {% if item.application.desired_date %}<span>🗓 {{ item.application.desired_date.strftime('%d.%m.%Y') }}</span>{% endif %}
+      {% if item.appointment %}<span>⏰ {{ item.appointment.scheduled_start.astimezone(studio_timezone).strftime('%d.%m %H:%M') }}</span>{% endif %}
+    </div>
+  </a>
+  {% else %}
+  <div class="empty-state"><p>Заявок по выбранному фильтру нет.</p></div>
+  {% endfor %}
+</div>
+{% endblock %}

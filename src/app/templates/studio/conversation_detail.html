@@ -87,6 +87,28 @@
   </section>
 
   <aside class="client-column">
+    <section class="panel-card conversation-application-card">
+      <p class="eyebrow">Проект</p>
+      {% set active_application = namespace(value=none) %}
+      {% for candidate in detail.applications %}
+        {% if active_application.value is none and candidate.status in ('new', 'qualification', 'consultation', 'awaiting_deposit', 'booked') %}
+          {% set active_application.value = candidate %}
+        {% endif %}
+      {% endfor %}
+      {% if active_application.value %}
+        {% set application = active_application.value %}
+        <h2>{{ application_status_labels.get(application.status, application.status) }}</h2>
+        <p>{{ application.idea or 'Идея пока не заполнена' }}</p>
+        <a class="primary-button full-width center-button" href="/studio/applications/{{ application.id }}">Открыть заявку</a>
+      {% else %}
+        <h2>Заявки ещё нет</h2>
+        <p class="muted">Создай отдельный тату-проект из данных карточки клиента.</p>
+        <form method="post" action="/studio/conversations/{{ detail.conversation.id }}/applications">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="primary-button full-width" type="submit">Создать заявку</button>
+        </form>
+      {% endif %}
+    </section>
     <form method="post" action="/studio/conversations/{{ detail.conversation.id }}/client" class="panel-card client-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="panel-heading">
