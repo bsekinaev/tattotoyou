@@ -8,4 +8,4 @@ def test_alembic_revision_graph_has_single_base_and_head() -> None:
 
     assert len(bases) == 1
     assert len(heads) == 1
-    assert heads[0] == "h8c9d0e1f2a3"
+    assert heads[0] == "i9d0e1f2a3b4"

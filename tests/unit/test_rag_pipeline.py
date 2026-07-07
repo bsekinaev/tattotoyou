@@ -19,9 +19,11 @@ from app.services.ai.embedding_service import (
     EmbeddingServiceError,
     build_knowledge_embedding_text,
 )
+from app.services.ai.intent_classifier import IntentResult
 from app.services.ai.knowledge_retriever import KnowledgeRetriever
 from app.services.ai.prompt_builder import SYSTEM_PROMPT, PromptBuilder
 from app.services.conversation_service import ConversationService
+from app.services.escalation.engine import EscalationDecision
 
 
 def _conversation() -> Conversation:
@@ -133,6 +135,7 @@ async def test_required_intent_without_knowledge_escalates_without_calling_ai(
     conversation = _conversation()
     outbound = SimpleNamespace(id=10)
     delivery = SimpleNamespace(id=uuid.uuid4())
+    notification = SimpleNamespace(id=uuid.uuid4())
     conversation_repo = SimpleNamespace(escalate=AsyncMock(), increment_ai_messages=AsyncMock())
     message_repo = SimpleNamespace(
         get_by_causation=AsyncMock(return_value=None),
@@ -149,27 +152,32 @@ async def test_required_intent_without_knowledge_escalates_without_calling_ai(
         platform_adapter=SimpleNamespace(),
         ai_client=ai_client,
         outbound_delivery_repo=SimpleNamespace(
-            create_for_message=AsyncMock(return_value=(delivery, True))
+            create_for_message=AsyncMock(return_value=(delivery, True)),
+            create_notification=AsyncMock(return_value=(notification, True)),
         ),
         knowledge_retriever=SimpleNamespace(retrieve=AsyncMock(return_value=[])),
     )
     service._resolve_conversation = AsyncMock(return_value=(_client(), conversation))
-    monkeypatch.setattr(conversation_module.IntentClassifier, "classify", lambda _text: "pricing")
+    monkeypatch.setattr(
+        conversation_module.IntentClassifier,
+        "classify_detailed",
+        lambda _text: IntentResult("pricing", 0.95, ("сколько стоит",), {"pricing": 5}),
+    )
     monkeypatch.setattr(
         conversation_module.EscalationEngine,
-        "should_escalate",
-        lambda _intent, _text: (False, ""),
+        "evaluate",
+        lambda *_args, **_kwargs: EscalationDecision(False),
     )
     monkeypatch.setattr(conversation_module.deliver_outbound_message_task, "delay", MagicMock())
-    notify = MagicMock()
-    monkeypatch.setattr(conversation_module.send_admin_notification_task, "delay", notify)
-
-    await service.process_message(_message("Сколько стоит?"), causation_event_id=uuid.uuid4())
+    event_id = uuid.uuid4()
+    await service.process_message(_message("Сколько стоит?"), causation_event_id=event_id)
 
     ai_client.generate_response.assert_not_awaited()
     conversation_repo.escalate.assert_awaited_once_with(conversation)
     assert message_repo.create_message_once.await_args.kwargs["is_escalation_trigger"] is True
-    assert notify.call_args.kwargs["reason"] == "knowledge_missing:pricing"
+    notification_call = service.outbound_delivery_repo.create_notification.await_args.kwargs
+    assert "knowledge_missing:pricing" in notification_call["payload_text"]
+    assert notification_call["deduplication_key"] == f"escalation:event:{event_id}"
 
 
 @pytest.mark.asyncio
@@ -208,11 +216,15 @@ async def test_retrieved_knowledge_reaches_ai_prompt(
         ),
     )
     service._resolve_conversation = AsyncMock(return_value=(_client(), conversation))
-    monkeypatch.setattr(conversation_module.IntentClassifier, "classify", lambda _text: "pricing")
+    monkeypatch.setattr(
+        conversation_module.IntentClassifier,
+        "classify_detailed",
+        lambda _text: IntentResult("pricing", 0.95, ("сколько стоит",), {"pricing": 5}),
+    )
     monkeypatch.setattr(
         conversation_module.EscalationEngine,
-        "should_escalate",
-        lambda _intent, _text: (False, ""),
+        "evaluate",
+        lambda *_args, **_kwargs: EscalationDecision(False),
     )
     monkeypatch.setattr(conversation_module.deliver_outbound_message_task, "delay", MagicMock())
 

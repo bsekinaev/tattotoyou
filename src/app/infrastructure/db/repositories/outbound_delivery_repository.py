@@ -15,6 +15,8 @@ from app.domain.outbound.models import (
     OUTBOUND_DELIVERY_RETRYING,
     OUTBOUND_DELIVERY_SENDING,
     OUTBOUND_DELIVERY_SENT,
+    OUTBOUND_KIND_MESSAGE,
+    OUTBOUND_KIND_NOTIFICATION,
     OutboundDelivery,
 )
 from app.infrastructure.db.repository import BaseRepository
@@ -36,6 +38,12 @@ class OutboundDeliveryRepository(BaseRepository[OutboundDelivery]):
         )
         return result.scalar_one_or_none()
 
+    async def get_by_deduplication_key(self, key: str) -> OutboundDelivery | None:
+        result = await self.session.execute(
+            select(self.model).where(self.model.deduplication_key == key)
+        )
+        return result.scalar_one_or_none()
+
     async def create_for_message(
         self,
         *,
@@ -48,6 +56,9 @@ class OutboundDeliveryRepository(BaseRepository[OutboundDelivery]):
             insert(self.model)
             .values(
                 message_id=message_id,
+                delivery_kind=OUTBOUND_KIND_MESSAGE,
+                payload_text=None,
+                deduplication_key=None,
                 platform=platform,
                 destination_id=destination_id,
                 status=OUTBOUND_DELIVERY_PENDING,
@@ -68,6 +79,44 @@ class OutboundDeliveryRepository(BaseRepository[OutboundDelivery]):
 
         if delivery is None:
             raise RuntimeError("Outbound delivery upsert completed without a visible row")
+        return delivery, created
+
+    async def create_notification(
+        self,
+        *,
+        platform: str,
+        destination_id: str,
+        payload_text: str,
+        deduplication_key: str,
+    ) -> tuple[OutboundDelivery, bool]:
+        """Создать идемпотентное системное уведомление без записи в чат клиента."""
+        statement = (
+            insert(self.model)
+            .values(
+                message_id=None,
+                delivery_kind=OUTBOUND_KIND_NOTIFICATION,
+                payload_text=payload_text,
+                deduplication_key=deduplication_key,
+                platform=platform,
+                destination_id=destination_id,
+                status=OUTBOUND_DELIVERY_PENDING,
+                attempts=0,
+            )
+            .on_conflict_do_nothing(index_elements=[self.model.deduplication_key])
+            .returning(self.model.id)
+        )
+        result = await self.session.execute(statement)
+        inserted_id = result.scalar_one_or_none()
+
+        if inserted_id is not None:
+            delivery = await self.get_by_uuid(inserted_id)
+            created = True
+        else:
+            delivery = await self.get_by_deduplication_key(deduplication_key)
+            created = False
+
+        if delivery is None:
+            raise RuntimeError("Notification delivery upsert completed without a visible row")
         return delivery, created
 
     async def claim(

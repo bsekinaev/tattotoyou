@@ -1,4 +1,4 @@
-"""ORM-модель надёжной исходящей доставки сообщений."""
+"""ORM-модель надёжной исходящей доставки сообщений и уведомлений."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -26,6 +27,9 @@ OUTBOUND_DELIVERY_RETRYING = "retrying"
 OUTBOUND_DELIVERY_SENT = "sent"
 OUTBOUND_DELIVERY_FAILED = "failed"
 
+OUTBOUND_KIND_MESSAGE = "message"
+OUTBOUND_KIND_NOTIFICATION = "notification"
+
 DISPATCHABLE_OUTBOUND_DELIVERY_STATUSES = (
     OUTBOUND_DELIVERY_PENDING,
     OUTBOUND_DELIVERY_RETRYING,
@@ -33,14 +37,28 @@ DISPATCHABLE_OUTBOUND_DELIVERY_STATUSES = (
 
 
 class OutboundDelivery(Base):
-    """Попытка доставить сохранённое исходящее сообщение во внешнюю платформу."""
+    """Попытка доставить сохранённый payload во внешнюю платформу."""
 
     __tablename__ = "outbound_deliveries"
     __table_args__ = (
         UniqueConstraint("message_id", name="uq_outbound_deliveries_message_id"),
+        UniqueConstraint(
+            "deduplication_key",
+            name="uq_outbound_deliveries_deduplication_key",
+        ),
         CheckConstraint(
             "status IN ('pending', 'sending', 'retrying', 'sent', 'failed')",
             name="ck_outbound_deliveries_status",
+        ),
+        CheckConstraint(
+            "delivery_kind IN ('message', 'notification')",
+            name="ck_outbound_deliveries_kind",
+        ),
+        CheckConstraint(
+            "(delivery_kind = 'message' AND message_id IS NOT NULL AND payload_text IS NULL) "
+            "OR (delivery_kind = 'notification' AND message_id IS NULL "
+            "AND payload_text IS NOT NULL)",
+            name="ck_outbound_deliveries_payload_source",
         ),
         Index(
             "ix_outbound_deliveries_dispatch",
@@ -59,11 +77,19 @@ class OutboundDelivery(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
-    message_id: Mapped[int] = mapped_column(
+    message_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("messages.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    delivery_kind: Mapped[str] = mapped_column(
+        String(32),
+        default=OUTBOUND_KIND_MESSAGE,
+        server_default=OUTBOUND_KIND_MESSAGE,
         nullable=False,
     )
+    payload_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deduplication_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
     platform: Mapped[str] = mapped_column(String(20), nullable=False)
     destination_id: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(

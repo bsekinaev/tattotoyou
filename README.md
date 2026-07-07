@@ -179,14 +179,14 @@ Readiness-ответ не раскрывает внутренние тексты
 uv sync --locked --extra dev
 ```
 
-Запустить unit-тесты с текущим минимальным порогом покрытия 73%:
+Запустить unit-тесты с текущим минимальным порогом покрытия 74%:
 
 ```bash
 uv run --locked --extra dev python -m pytest tests/unit -v \
-  --cov=src/app --cov-report=term-missing --cov-fail-under=73
+  --cov=src/app --cov-report=term-missing --cov-fail-under=74
 ```
 
-Unit-тесты проверяют классификацию запросов, эскалацию, state machine диалога, Transactional Outbox, классификацию ошибок доставки, retry/refresh GigaChat, bounded prompt, AI fallback, banned-клиентов, loop-local DB session, Telegram chunking, аутентификацию Admin API, webhook secret, TLS, минимизацию PII, PostgreSQL Inbox и health endpoints.
+Unit-тесты проверяют 169 размеченных клиентских фраз, confidence классификатора, prompt-injection detector, расширенную эскалацию, state machine диалога, Transactional Outbox для ответов и уведомлений Соне, retry/refresh GigaChat, bounded prompt, AI fallback, banned-клиентов, loop-local DB session, Telegram chunking, аутентификацию Admin API, webhook secret, TLS, минимизацию PII, PostgreSQL Inbox и health endpoints.
 
 Проверить линейность Alembic-истории без подключения к БД:
 
@@ -194,13 +194,13 @@ Unit-тесты проверяют классификацию запросов, 
 uv run --locked --extra dev python scripts/check_migration_graph.py
 ```
 
-Интеграционные тесты требуют чистую мигрированную PostgreSQL с расширением pgvector:
+Интеграционные тесты требуют чистую PostgreSQL с расширением pgvector. Кроссплатформенный runner сам поднимает инфраструктуру, пересоздаёт только выделенную тестовую БД, применяет миграции и запускает suite:
 
 ```bash
-export TEST_POSTGRES_DSN=postgresql://postgres:postgres@127.0.0.1:5432/tattutuy_test
-uv run --locked --extra dev alembic upgrade head
-uv run --locked --extra dev python -m pytest tests/integration -v --no-cov
+uv run --no-sync python scripts/run_postgres_integration.py
 ```
+
+По умолчанию используется БД `tattoo_assistant_test`. Основная локальная БД не удаляется и не изменяется.
 
 GitHub Actions теперь выполняет три независимых уровня проверки:
 
@@ -281,6 +281,9 @@ RAG использует cosine similarity в pgvector. Для намерени�
 - [x] административный интерфейс оператора
 - [x] заявки на тату, state machine воронки и управление записью
 - [x] PostgreSQL integration-тесты и migration smoke в CI
+- [x] explainable intent classifier с confidence и regression dataset
+- [x] prompt-injection detector и расширенные safety-эскалации
+- [x] долговечные уведомления Соне и terminal fallback через Outbox
 - [ ] нагрузочные, e2e и chaos-тесты
 - [ ] метрики и dashboard observability
 
@@ -312,7 +315,7 @@ cookie на 12 часов и защищает изменяющие формы CS
 python -m alembic upgrade head
 ```
 
-Актуальный Alembic head: `h8c9d0e1f2a3`.
+Актуальный Alembic head: `i9d0e1f2a3b4`.
 
 ## Заявки на тату и запись
 
@@ -348,7 +351,7 @@ exclusion constraint запрещает пересечение активных 
 python -m alembic upgrade head
 ```
 
-Актуальный Alembic head: `h8c9d0e1f2a3`.
+Актуальный Alembic head: `i9d0e1f2a3b4`.
 
 ## Документация развития
 

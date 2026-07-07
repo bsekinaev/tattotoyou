@@ -55,7 +55,23 @@ async def _assert_schema_ready(engine) -> None:
                 """
             )
         )
-        if table is None or open_index is None or sender_column is None:
+        notification_column = await connection.scalar(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'outbound_deliveries'
+                  AND column_name = 'deduplication_key'
+                """
+            )
+        )
+        if (
+            table is None
+            or open_index is None
+            or sender_column is None
+            or notification_column is None
+        ):
             pytest.fail(
                 "PostgreSQL test schema does not contain the Outbox revision. "
                 "Run `python -m alembic upgrade head` first."
@@ -135,6 +151,55 @@ async def test_outbound_delivery_is_created_once_and_claimed_once() -> None:
             if platform_id is not None:
                 async with session_factory() as session, session.begin():
                     await session.execute(delete(Platform).where(Platform.id == platform_id))
+        finally:
+            await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_notification_delivery_is_deduplicated_under_concurrency() -> None:
+    engine = create_async_engine(
+        _test_dsn(),
+        pool_size=20,
+        max_overflow=10,
+        pool_pre_ping=True,
+    )
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    key = f"integration-notification-{uuid.uuid4().hex}"
+
+    try:
+        await _assert_schema_ready(engine)
+
+        async def create_notification() -> uuid.UUID:
+            async with session_factory() as session, session.begin():
+                delivery, _created = await OutboundDeliveryRepository(session).create_notification(
+                    platform="telegram",
+                    destination_id="777",
+                    payload_text="Надёжное уведомление",
+                    deduplication_key=key,
+                )
+                return delivery.id
+
+        delivery_ids = await asyncio.gather(*(create_notification() for _ in range(20)))
+        assert len(set(delivery_ids)) == 1
+
+        async with session_factory() as session:
+            count = await session.scalar(
+                select(func.count())
+                .select_from(OutboundDelivery)
+                .where(OutboundDelivery.deduplication_key == key)
+            )
+            delivery = await session.get(OutboundDelivery, delivery_ids[0])
+
+        assert count == 1
+        assert delivery is not None
+        assert delivery.message_id is None
+        assert delivery.payload_text == "Надёжное уведомление"
+    finally:
+        try:
+            async with session_factory() as session, session.begin():
+                await session.execute(
+                    delete(OutboundDelivery).where(OutboundDelivery.deduplication_key == key)
+                )
         finally:
             await engine.dispose()
 

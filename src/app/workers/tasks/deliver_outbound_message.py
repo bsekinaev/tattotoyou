@@ -117,11 +117,29 @@ async def _deliver_outbound(delivery_id: uuid.UUID) -> DeliveryOutcome:
             await db.rollback()
             return DeliveryOutcome(status="ignored")
 
-        message = await MessageRepository(db).get_by_id(delivery.message_id)
-        if message is None:
+        message_id = delivery.message_id
+        if message_id is not None:
+            message = await MessageRepository(db).get_by_id(message_id)
+            if message is None:
+                await OutboundDeliveryRepository(db).mark_failure(
+                    delivery_id,
+                    error_code="MessageNotFound",
+                    max_attempts=settings.outbound_delivery_max_attempts,
+                    retry_delay=timedelta(0),
+                    permanent=True,
+                )
+                await db.commit()
+                return DeliveryOutcome(
+                    status=OUTBOUND_DELIVERY_FAILED,
+                    attempts=delivery.attempts,
+                )
+            content = message.content
+        elif delivery.payload_text:
+            content = delivery.payload_text
+        else:
             await OutboundDeliveryRepository(db).mark_failure(
                 delivery_id,
-                error_code="MessageNotFound",
+                error_code="PayloadNotFound",
                 max_attempts=settings.outbound_delivery_max_attempts,
                 retry_delay=timedelta(0),
                 permanent=True,
@@ -134,7 +152,6 @@ async def _deliver_outbound(delivery_id: uuid.UUID) -> DeliveryOutcome:
 
         platform = delivery.platform
         destination_id = delivery.destination_id
-        content = message.content
         attempts = delivery.attempts
         await db.commit()
 
@@ -163,9 +180,10 @@ async def _deliver_outbound(delivery_id: uuid.UUID) -> DeliveryOutcome:
             delivery_id,
             platform_message_id=platform_message_id,
         )
-        message = await MessageRepository(db).get_by_id(delivery.message_id)
-        if message is not None:
-            message.platform_message_id = platform_message_id
+        if message_id is not None:
+            message = await MessageRepository(db).get_by_id(message_id)
+            if message is not None:
+                message.platform_message_id = platform_message_id
         await db.commit()
 
     logger.info(

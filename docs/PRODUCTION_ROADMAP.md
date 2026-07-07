@@ -1,6 +1,6 @@
 # TATTOTOYOU — roadmap до production-пилота
 
-Актуально на 2026-07-07.
+Актуально на 2026-07-08.
 
 Проект находится на стадии **late product MVP**: Telegram/AI-контур, RAG,
 PostgreSQL Inbox/Outbox, handoff, панель Сони, заявки и расписание уже работают.
@@ -9,19 +9,19 @@ PostgreSQL Inbox/Outbox, handoff, панель Сони, заявки и рас�
 
 ## P0. Production Gate
 
-Статус: **реализовано в коде, требуется подтверждение GitHub Actions**.
+Статус: **реализовано и подтверждено зелёным GitHub Actions**.
 
 - [x] зависимости фиксируются в `uv.lock`;
 - [x] unit-тесты запускаются на Python 3.11 и 3.12;
-- [x] текущий coverage baseline закреплён на 73%;
+- [x] coverage baseline поднят до 74%;
 - [x] Alembic graph обязан иметь одну base и один head;
 - [x] PostgreSQL 15 + pgvector и Redis поднимаются в CI;
 - [x] миграции применяются к пустой БД;
 - [x] PostgreSQL integration-тесты запускаются в CI;
 - [x] production/development Compose проходят config smoke;
 - [x] production image собирается из lock-файла;
-- [ ] подтвердить первый зелёный прогон обновлённого workflow в GitHub Actions;
-- [ ] поднять unit coverage с 73% до 80%, затем до 85%;
+- [x] подтверждён зелёный прогон обновлённого workflow в GitHub Actions;
+- [ ] поднять unit coverage с 74% до 80%, затем до 85%;
 - [ ] погасить type debt и сделать strict mypy блокирующим gate.
 
 Definition of Done: каждый зелёный commit гарантирует корректный lint, unit
@@ -29,16 +29,23 @@ baseline, линейную историю миграций, PostgreSQL-инва�
 
 ## P1. AI quality и безопасная эскалация
 
-- [ ] заменить опасные substring-правила intent classifier на токены/regex;
-- [ ] собрать размеченный набор реальных клиентских фраз;
-- [ ] считать precision/recall для `health`, `complaint`, `booking`, `pricing`;
-- [ ] добавить prompt-injection detector;
-- [ ] расширить эскалацию: несовершеннолетние, перенос/отмена, возврат,
-  сотрудничество, VIP, спорные эскизы и отсутствие подтверждённого знания;
-- [ ] провести terminal fallback через Transactional Outbox;
-- [ ] сделать уведомления Сони долговечными через notification outbox;
-- [ ] добавить причины и метрики каждой эскалации;
-- [ ] создать RAG evaluation dataset с ожидаемым FAQ и решением auto/handoff.
+Статус: **основной safety-контур реализован в текущем патче**.
+
+- [x] опасные substring-правила заменены на explainable regex/word-boundary rules;
+- [x] собран regression dataset из 169 клиентских фраз;
+- [x] classifier возвращает intent, confidence, matched rules и score breakdown;
+- [ ] считать precision/recall на независимой выборке реальных диалогов;
+- [x] добавлен консервативный prompt-injection detector;
+- [x] расширена эскалация: несовершеннолетние, перенос/отмена, сотрудничество,
+  VIP, чувствительные зоны, явный запрос человека и low confidence;
+- [x] отсутствие подтверждённого RAG-знания продолжает переводить диалог Соне;
+- [x] terminal fallback проводится через Transactional Outbox;
+- [x] уведомления Сони долговечны и идемпотентны через notification outbox;
+- [x] причина эскалации сохраняется в notification payload и structured logs;
+- [ ] добавить Prometheus-метрики причин эскалации;
+- [ ] создать независимый RAG evaluation dataset с ожидаемым FAQ и решением
+  auto/handoff;
+- [ ] добавить политику повторных неудачных ответов в рамках одного диалога.
 
 Definition of Done: чувствительные обращения не получают автономный ответ без
 подтверждённого знания; regression dataset проходит в CI.
@@ -106,6 +113,7 @@ Definition of Done: нет потерянных событий и необъяс
 
 ## Следующий инженерный блок
 
-После подтверждения нового CI: **AI quality и escalation hardening**. Первый
-коммит — regression dataset для intent classifier и исправление ложных
-срабатываний без изменения внешнего API.
+После зелёного CI текущего патча: **P2 Observability и эксплуатация** — Sentry,
+Prometheus, backlog/latency/error metrics, alerts и readiness embedding-модели.
+Параллельно накапливается независимая выборка реальных диалогов для измерения
+precision/recall без подгонки под regression rules.
