@@ -23,6 +23,7 @@ from app.domain.outbound.models import (
     OUTBOUND_DELIVERY_PENDING,
     OUTBOUND_DELIVERY_RETRYING,
     OUTBOUND_DELIVERY_SENDING,
+    OUTBOUND_KIND_NOTIFICATION,
     OutboundDelivery,
 )
 from app.infrastructure.db.repositories.conversation_repository import (
@@ -33,7 +34,9 @@ from app.infrastructure.db.repositories.outbound_delivery_repository import (
     OutboundDeliveryRepository,
 )
 from app.services import conversation_service as conversation_service_module
+from app.services.ai.intent_classifier import IntentResult
 from app.services.conversation_service import ConversationService
+from app.services.escalation.engine import EscalationDecision
 from app.workers.tasks import deliver_outbound_message as delivery_task_module
 
 
@@ -97,6 +100,34 @@ async def test_delivery_create_uses_message_upsert() -> None:
     compiled = statement.compile(dialect=postgresql.dialect())
     assert "ON CONFLICT (message_id) DO NOTHING" in str(compiled)
     assert "RETURNING outbound_deliveries.id" in str(compiled)
+
+
+@pytest.mark.asyncio
+async def test_notification_create_uses_deduplication_upsert() -> None:
+    existing = _delivery(
+        message_id=None,
+        delivery_kind=OUTBOUND_KIND_NOTIFICATION,
+        payload_text="Уведомление",
+        deduplication_key="escalation:event:1",
+    )
+    session = FakeSession([ScalarResult(None), ScalarResult(existing)])
+
+    delivery, created = await OutboundDeliveryRepository(session).create_notification(
+        platform="telegram",
+        destination_id="777",
+        payload_text="Уведомление",
+        deduplication_key="escalation:event:1",
+    )
+
+    assert delivery is existing
+    assert created is False
+    statement = session.execute.await_args_list[0].args[0]
+    compiled = statement.compile(dialect=postgresql.dialect())
+    sql = str(compiled)
+    assert "ON CONFLICT (deduplication_key) DO NOTHING" in sql
+    assert compiled.params["delivery_kind"] == OUTBOUND_KIND_NOTIFICATION
+    assert compiled.params["message_id"] is None
+    assert compiled.params["payload_text"] == "Уведомление"
 
 
 @pytest.mark.asyncio
@@ -237,13 +268,13 @@ async def test_conversation_service_commits_outbox_before_dispatch(
 
     monkeypatch.setattr(
         conversation_service_module.IntentClassifier,
-        "classify",
-        lambda _text: "pricing",
+        "classify_detailed",
+        lambda _text: IntentResult("pricing", 0.95, ("сколько стоит",), {"pricing": 5}),
     )
     monkeypatch.setattr(
         conversation_service_module.EscalationEngine,
-        "should_escalate",
-        lambda _intent, _text: (False, ""),
+        "evaluate",
+        lambda *_args, **_kwargs: EscalationDecision(False),
     )
     monkeypatch.setattr(
         conversation_service_module.deliver_outbound_message_task,
@@ -428,6 +459,61 @@ async def test_delivery_worker_marks_success_and_platform_message_id(
 
     assert outcome.status == "sent"
     assert message.platform_message_id == "telegram-99"
+    claim_session.commit.assert_awaited_once()
+    final_session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delivery_worker_sends_notification_payload_without_message_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delivery = _delivery(
+        message_id=None,
+        delivery_kind=OUTBOUND_KIND_NOTIFICATION,
+        payload_text="Системное уведомление",
+        deduplication_key="escalation:event:2",
+        status=OUTBOUND_DELIVERY_SENDING,
+        attempts=1,
+    )
+    claim_session = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    final_session = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    sessions = iter([claim_session, final_session])
+
+    class DeliveryRepository:
+        def __init__(self, _session: Any) -> None:
+            pass
+
+        async def claim(self, *_args: Any, **_kwargs: Any) -> Any:
+            return delivery
+
+        async def mark_sent(self, *_args: Any, **_kwargs: Any) -> Any:
+            return delivery
+
+    class Messages:
+        def __init__(self, _session: Any) -> None:
+            pass
+
+        async def get_by_id(self, _message_id: int) -> Any:
+            raise AssertionError("notification delivery must not load a conversation message")
+
+    send = AsyncMock(return_value="telegram-admin-1")
+    monkeypatch.setattr(
+        delivery_task_module,
+        "async_session_factory",
+        lambda: AsyncSessionContext(next(sessions)),
+    )
+    monkeypatch.setattr(delivery_task_module, "OutboundDeliveryRepository", DeliveryRepository)
+    monkeypatch.setattr(delivery_task_module, "MessageRepository", Messages)
+    monkeypatch.setattr(delivery_task_module, "_send_to_platform", send)
+
+    outcome = await delivery_task_module._deliver_outbound(delivery.id)
+
+    assert outcome.status == "sent"
+    send.assert_awaited_once_with(
+        platform="telegram",
+        destination_id="123",
+        content="Системное уведомление",
+    )
     claim_session.commit.assert_awaited_once()
     final_session.commit.assert_awaited_once()
 

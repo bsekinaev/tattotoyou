@@ -94,4 +94,4 @@ plugins = ["pydantic.mypy"]
 # ============================================
 [tool.coverage.report]
 show_missing = true
-fail_under = 73
+fail_under = 74

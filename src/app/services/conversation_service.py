@@ -29,8 +29,8 @@ from app.services.ai.intent_classifier import IntentClassifier
 from app.services.ai.knowledge_retriever import KnowledgeRetriever
 from app.services.ai.prompt_builder import PromptBuilder
 from app.services.escalation.engine import EscalationEngine
+from app.services.notifications.admin_notifier import AdminNotifier
 from app.workers.tasks.deliver_outbound_message import deliver_outbound_message_task
-from app.workers.tasks.send_admin_notification import send_admin_notification_task
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -125,8 +125,16 @@ class ConversationService:
             )
             return
 
-        intent = IntentClassifier.classify(message.text)
-        should_escalate, reason = EscalationEngine.should_escalate(intent, message.text)
+        intent_result = IntentClassifier.classify_detailed(message.text)
+        intent = intent_result.intent
+        escalation = EscalationEngine.evaluate(
+            intent_result,
+            message.text,
+            is_vip=bool(getattr(client, "is_vip", False)),
+            low_confidence_threshold=settings.intent_low_confidence_threshold,
+        )
+        should_escalate = escalation.should_escalate
+        reason = escalation.reason
 
         if should_escalate:
             logger.warning(
@@ -134,6 +142,8 @@ class ConversationService:
                 reason=reason,
                 chat_id=message.chat_id,
                 intent=intent,
+                confidence=intent_result.confidence,
+                matched_rules=intent_result.matched_rules,
             )
             await self.conversation_repo.escalate(conversation)
             reply_text = (
@@ -210,19 +220,43 @@ class ConversationService:
             platform=message.platform,
             destination_id=message.chat_id,
         )
+        delivery_ids: list[uuid.UUID] = []
+        if delivery_created or outbound_created:
+            delivery_ids.append(delivery.id)
+
         if outbound_created:
             await self.conversation_repo.increment_ai_messages(conversation)
-        await self.db.commit()
 
         if should_escalate and outbound_created:
-            self._dispatch_admin_notification(
-                client=client,
+            notification_text = AdminNotifier.build_outbox_message(
+                client_name=client.display_name or "Гость",
+                client_username=client.username,
                 reason=reason,
-                message=message,
+                last_message=message.text or "",
+                chat_id=message.chat_id,
             )
+            deduplication_key = self._escalation_deduplication_key(
+                conversation_id=conversation.id,
+                outbound_message_id=outbound.id,
+                causation_event_id=causation_event_id,
+            )
+            (
+                notification,
+                notification_created,
+            ) = await self.outbound_delivery_repo.create_notification(
+                platform="telegram",
+                destination_id=str(settings.telegram_admin_chat_id),
+                payload_text=notification_text,
+                deduplication_key=deduplication_key,
+            )
+            if notification_created:
+                delivery_ids.append(notification.id)
 
-        if delivery_created or outbound_created:
-            self._dispatch_delivery(delivery.id)
+        await self.db.commit()
+
+        if delivery_ids:
+            for delivery_id in dict.fromkeys(delivery_ids):
+                self._dispatch_delivery(delivery_id)
         else:
             logger.info(
                 "duplicate_outbound_effect_suppressed",
@@ -306,23 +340,12 @@ class ConversationService:
             return False
 
     @staticmethod
-    def _dispatch_admin_notification(
+    def _escalation_deduplication_key(
         *,
-        client: Client,
-        reason: str,
-        message: PlatformMessage,
-    ) -> None:
-        try:
-            send_admin_notification_task.delay(
-                client_name=client.display_name or "Гость",
-                client_username=client.username,
-                reason=reason,
-                last_message=message.text or "",
-                chat_id=int(message.chat_id),
-            )
-        except Exception as exc:
-            logger.exception(
-                "admin_notification_dispatch_failed",
-                chat_id=message.chat_id,
-                error_type=type(exc).__name__,
-            )
+        conversation_id: uuid.UUID,
+        outbound_message_id: int,
+        causation_event_id: uuid.UUID | None,
+    ) -> str:
+        if causation_event_id is not None:
+            return f"escalation:event:{causation_event_id}"
+        return f"escalation:conversation:{conversation_id}:message:{outbound_message_id}"

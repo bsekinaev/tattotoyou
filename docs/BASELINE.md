@@ -1,11 +1,12 @@
 # Repository validation baseline
 
-Date: 2026-07-07  
-Snapshot: `repomix-output.xml`
+Date: 2026-07-08
+Patch: `AI Quality + Escalation Hardening`
 
-Этот документ фиксирует проверяемую инженерную базу проекта. Он не является
-утверждением о production-ready статусе: интеграционный и container-контуры
-считаются подтверждёнными только после зелёного запуска GitHub Actions.
+Этот документ фиксирует проверяемую инженерную базу после крупного AI/safety
+патча. Production Gate ранее подтверждён зелёным GitHub Actions; текущий патч
+должен повторно пройти те же quality, PostgreSQL integration и container gates
+после применения в основном репозитории.
 
 ## Активный execution path
 
@@ -14,48 +15,46 @@ POST /webhook/telegram
   -> Secret Token + body limit + Redis rate limit
   -> PostgreSQL IncomingEvent Inbox
   -> Celery process_telegram_update_task
-  -> ConversationService / RAG / GigaChat / escalation
+  -> explainable IntentResult + safety escalation gate
+  -> RAG / GigaChat либо handoff
   -> Message + PostgreSQL Transactional Outbox
+  -> Outbox notification Соне при эскалации
   -> Celery deliver_outbound_message_task
   -> Telegram Bot API
 ```
 
-Celery Beat восстанавливает готовые и зависшие Inbox/Outbox записи. Ручной
-ответ Сони также сохраняется через Outbox. Панель управляет handoff-состояниями,
-заявками, предоплатой и расписанием.
+Terminal Inbox failure также не вызывает Telegram напрямую: fallback клиенту и
+уведомление Соне атомарно сохраняются в Outbox. Celery Beat восстанавливает
+готовые и зависшие Inbox/Outbox записи.
 
-## Локальный baseline
+## Локальный baseline патча
 
-Проверено на извлечённом snapshot:
+Проверено в рабочем snapshot:
 
+- Python compileall: PASS;
 - Ruff lint: PASS;
 - Ruff format: PASS;
-- Alembic graph: одна base `2b5c075445e1`, один head `h8c9d0e1f2a3`;
-- unit tests: **181 PASS**;
-- statement coverage: **73.40%**;
-- coverage gate: **73%**.
+- Alembic graph: одна base `2b5c075445e1`, один head `i9d0e1f2a3b4`;
+- intent regression dataset: **169 фраз**;
+- unit tests: **379 PASS**;
+- statement coverage: **74.54%**;
+- coverage gate: **74%**.
 
-Полный PostgreSQL integration и Docker build не исполнялись в текущем
-контейнерном окружении из-за отсутствия Docker daemon. Их выполняет обновлённый
-GitHub Actions workflow.
+PostgreSQL integration collection содержит 10 тестов. Полный запуск с реальной
+БД и Docker image выполняется GitHub Actions и локально командой
+`scripts/run_postgres_integration.py`; в среде подготовки патча Docker daemon
+недоступен.
 
 ## Канонические команды
 
 ```bash
 uv sync --locked --extra dev
-uv run --locked --extra dev ruff check src tests scripts migrations
-uv run --locked --extra dev ruff format --check src tests scripts migrations
-uv run --locked --extra dev python scripts/check_migration_graph.py
-uv run --locked --extra dev python -m pytest tests/unit -v \
-  --cov=src/app --cov-fail-under=73
-```
-
-PostgreSQL integration:
-
-```bash
-uv run --locked --extra dev alembic upgrade head
-uv run --locked --extra dev alembic current --check-heads
-uv run --locked --extra dev python -m pytest tests/integration -v --no-cov
+uv run --no-sync ruff check src tests scripts migrations
+uv run --no-sync ruff format --check src tests scripts migrations
+uv run --no-sync python scripts/check_migration_graph.py
+uv run --no-sync python -m pytest tests/unit -v \
+  --cov=src/app --cov-fail-under=74
+uv run --no-sync python scripts/run_postgres_integration.py
 ```
 
 Строгая типизация пока является отдельным диагностическим этапом:
@@ -67,11 +66,14 @@ python scripts/validate_repository.py --type-check
 Её нельзя объявлять зелёной до планового устранения type debt; массовые
 `ignore` не считаются исправлением.
 
-## Инварианты развития
+## Новые safety-инварианты
 
-1. Новая бизнес-функция сопровождается unit или integration-тестом.
-2. Миграции всегда проверяются на пустой PostgreSQL с pgvector.
-3. В проекте должен оставаться ровно один Alembic head.
-4. Внешний ответ сначала фиксируется в БД, затем отправляется платформе.
-5. Чувствительные сценарии используют handoff, а не неподтверждённую генерацию.
-6. README и roadmap отражают только исполняемое и проверяемое поведение.
+1. Классификация возвращает intent, confidence и matched rules.
+2. Критичные сценарии проходят детерминированный safety-gate до вызова LLM.
+3. Prompt injection не передаётся внешнему AI как обычный клиентский запрос.
+4. Ответ клиенту и уведомление Соне сначала фиксируются в PostgreSQL Outbox.
+5. Уведомления идемпотентны по causation event и восстанавливаются Celery Beat.
+6. Terminal fallback не обходит Outbox и не зависит от доступности broker в
+   момент фиксации бизнес-эффекта.
+7. Новая бизнес-функция сопровождается unit или PostgreSQL integration-тестом.
+8. В проекте должен оставаться ровно один Alembic head.

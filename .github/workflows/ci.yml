@@ -67,7 +67,7 @@ jobs:
           --cov=src/app
           --cov-report=xml
           --cov-report=term-missing
-          --cov-fail-under=73
+          --cov-fail-under=74
 
       - name: Загрузить покрытие в Codecov
         uses: codecov/codecov-action@v7.0.0

@@ -11,7 +11,6 @@ celery_app = Celery(
     include=[
         "app.workers.tasks.process_telegram_update",
         "app.workers.tasks.deliver_outbound_message",
-        "app.workers.tasks.send_admin_notification",
     ],
 )
 

@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     ai_history_max_chars: int = Field(default=12000, ge=1000, le=100000)
     ai_response_max_chars: int = Field(default=4000, ge=256, le=12000)
     telegram_message_chunk_size: int = Field(default=4000, ge=256, le=4096)
+    intent_low_confidence_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
 
     # ============================================
     # RAG / KNOWLEDGE BASE

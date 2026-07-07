@@ -19,6 +19,7 @@ from app.infrastructure.db.repositories import (
     ConversationRepository,
     IncomingEventRepository,
     MessageRepository,
+    OutboundDeliveryRepository,
     PlatformRepository,
 )
 from app.infrastructure.db.worker_session import worker_session_scope as async_session_factory
@@ -26,7 +27,9 @@ from app.services.ai.fallback_responder import FallbackResponder
 from app.services.ai.gigachat_client import GigaChatClient
 from app.services.ai.intent_classifier import IntentClassifier
 from app.services.conversation_service import ConversationService
+from app.services.notifications.admin_notifier import AdminNotifier
 from app.workers.celery_app import celery_app
+from app.workers.tasks.deliver_outbound_message import deliver_outbound_message_task
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -91,7 +94,12 @@ def process_telegram_update_task(self, event_reference: str | dict[str, Any]):
             attempts=outcome.attempts,
         )
         if outcome.payload is not None:
-            asyncio.run(_send_fallback(outcome.payload))
+            asyncio.run(
+                _send_fallback(
+                    outcome.payload,
+                    causation_event_id=event_id,
+                )
+            )
         return {"status": INCOMING_EVENT_FAILED, "event_id": str(event_id)}
 
     logger.info(
@@ -247,8 +255,13 @@ async def _process_async(
             )
 
 
-async def _send_fallback(update_dict: dict[str, Any]) -> None:
-    """Отправить fallback и закрыть адаптер при любом результате парсинга."""
+async def _send_fallback(
+    update_dict: dict[str, Any],
+    *,
+    causation_event_id: uuid.UUID | None = None,
+) -> None:
+    """Сохранить финальный fallback и уведомление Соне через Outbox."""
+    delivery_ids: list[uuid.UUID] = []
     try:
         async with AsyncExitStack() as resources:
             telegram_adapter = TelegramAdapter()
@@ -258,9 +271,146 @@ async def _send_fallback(update_dict: dict[str, Any]) -> None:
             if not message or not message.text:
                 return
 
-            intent = IntentClassifier.classify(message.text)
-            fallback_text = FallbackResponder.get_response(intent)
-            await telegram_adapter.send_message(message.chat_id, fallback_text)
-            logger.info("fallback_message_sent", chat_id=message.chat_id)
+            async with async_session_factory() as db:
+                message_repo = MessageRepository(db)
+                outbox_repo = OutboundDeliveryRepository(db)
+
+                if causation_event_id is not None:
+                    existing_outbound = await message_repo.get_by_causation(
+                        causation_event_id,
+                        "outbound",
+                    )
+                    if existing_outbound is not None:
+                        delivery = await outbox_repo.get_by_message_id(existing_outbound.id)
+                        if delivery is None and existing_outbound.platform_message_id is None:
+                            delivery, _created = await outbox_repo.create_for_message(
+                                message_id=existing_outbound.id,
+                                platform=message.platform,
+                                destination_id=message.chat_id,
+                            )
+                        await db.commit()
+                        if delivery is not None:
+                            delivery_ids.append(delivery.id)
+                    else:
+                        delivery_ids.extend(
+                            await _persist_fallback_effect(
+                                db=db,
+                                message=message,
+                                causation_event_id=causation_event_id,
+                            )
+                        )
+                else:
+                    delivery_ids.extend(
+                        await _persist_fallback_effect(
+                            db=db,
+                            message=message,
+                            causation_event_id=None,
+                        )
+                    )
+
+        for delivery_id in dict.fromkeys(delivery_ids):
+            deliver_outbound_message_task.delay(str(delivery_id))
+            logger.info(
+                "fallback_outbox_dispatched",
+                delivery_id=str(delivery_id),
+            )
     except Exception as exc:
-        logger.exception("fallback_send_failed", error_type=type(exc).__name__)
+        logger.exception("fallback_outbox_failed", error_type=type(exc).__name__)
+
+
+async def _persist_fallback_effect(
+    *,
+    db: Any,
+    message: Any,
+    causation_event_id: uuid.UUID | None,
+) -> tuple[uuid.UUID, uuid.UUID]:
+    """Атомарно сохранить клиентский fallback и уведомление администратора."""
+    platform_repo = PlatformRepository(db)
+    client_repo = ClientRepository(db)
+    conversation_repo = ConversationRepository(db)
+    message_repo = MessageRepository(db)
+    outbox_repo = OutboundDeliveryRepository(db)
+
+    platform = await platform_repo.get_or_create(name=message.platform, webhook_secret="")
+    client = await client_repo.get_or_create(
+        platform_id=platform.id,
+        external_id=message.user.external_id,
+        display_name=message.user.display_name,
+        username=message.user.username,
+    )
+    conversation = await conversation_repo.get_or_create_active(client_id=client.id)
+    await conversation_repo.update_activity(conversation)
+
+    if causation_event_id is None:
+        await message_repo.create_message(
+            conversation_id=conversation.id,
+            direction="inbound",
+            sender_type="client",
+            content=message.text,
+            platform_message_id=message.message_id,
+        )
+    else:
+        await message_repo.create_message_once(
+            conversation_id=conversation.id,
+            direction="inbound",
+            sender_type="client",
+            content=message.text,
+            platform_message_id=message.message_id,
+            causation_event_id=causation_event_id,
+        )
+
+    intent = IntentClassifier.classify_detailed(message.text).intent
+    fallback_text = FallbackResponder.get_response(intent)
+    if causation_event_id is None:
+        outbound = await message_repo.create_message(
+            conversation_id=conversation.id,
+            direction="outbound",
+            sender_type="bot",
+            content=fallback_text,
+            is_escalation_trigger=True,
+        )
+    else:
+        outbound, _created = await message_repo.create_message_once(
+            conversation_id=conversation.id,
+            direction="outbound",
+            sender_type="bot",
+            content=fallback_text,
+            causation_event_id=causation_event_id,
+            is_escalation_trigger=True,
+        )
+
+    delivery, _created = await outbox_repo.create_for_message(
+        message_id=outbound.id,
+        platform=message.platform,
+        destination_id=message.chat_id,
+    )
+    notification, _notification_created = await outbox_repo.create_notification(
+        platform="telegram",
+        destination_id=str(settings.telegram_admin_chat_id),
+        payload_text=AdminNotifier.build_outbox_message(
+            client_name=client.display_name or "Гость",
+            client_username=client.username,
+            reason="incoming_event_processing_failed",
+            last_message=message.text,
+            chat_id=message.chat_id,
+        ),
+        deduplication_key=_terminal_fallback_deduplication_key(
+            conversation_id=conversation.id,
+            outbound_message_id=outbound.id,
+            causation_event_id=causation_event_id,
+        ),
+    )
+    await conversation_repo.escalate(conversation)
+    await db.commit()
+    return delivery.id, notification.id
+
+
+def _terminal_fallback_deduplication_key(
+    *,
+    conversation_id: uuid.UUID,
+    outbound_message_id: int,
+    causation_event_id: uuid.UUID | None,
+) -> str:
+    if causation_event_id is not None:
+        return f"terminal-fallback:event:{causation_event_id}"
+    return f"terminal-fallback:conversation:{conversation_id}:message:{outbound_message_id}"

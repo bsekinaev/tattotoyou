@@ -1,0 +1,678 @@
+[
+  {
+    "text": "Сколько стоит небольшая татуировка?",
+    "expected": "pricing"
+  },
+  {
+    "text": "Какая цена на рукав?",
+    "expected": "pricing"
+  },
+  {
+    "text": "Подскажите стоимость сеанса",
+    "expected": "pricing"
+  },
+  {
+    "text": "Можно узнать стоимость эскиза и работы?",
+    "expected": "pricing"
+  },
+  {
+    "text": "Есть прайс?",
+    "expected": "pricing"
+  },
+  {
+    "text": "Какой бюджет нужен на спину?",
+    "expected": "pricing"
+  },
+  {
+    "text": "Это дорого?",
+    "expected": "pricing"
+  },
+  {
+    "text": "Сколько будет в рублях?",
+    "expected": "pricing"
+  },
+  {
+    "text": "Цена зависит от размера?",
+    "expected": "pricing"
+  },
+  {
+    "text": "Хочу рассчитать стоимость",
+    "expected": "pricing"
+  },
+  {
+    "text": "Сколько тысяч примерно выйдет?",
+    "expected": "pricing"
+  },
+  {
+    "text": "У вас есть прайс-лист?",
+    "expected": "pricing"
+  },
+  {
+    "text": "Во сколько обойдется тату?",
+    "expected": "pricing"
+  },
+  {
+    "text": "Назовите цену за час",
+    "expected": "pricing"
+  },
+  {
+    "text": "Стоимость цветной работы выше?",
+    "expected": "pricing"
+  },
+  {
+    "text": "Будет дешевле, если эскиз готов?",
+    "expected": "pricing"
+  },
+  {
+    "text": "Сколько стоит коррекция?",
+    "expected": "pricing"
+  },
+  {
+    "text": "Какая цена за минимализм?",
+    "expected": "pricing"
+  },
+  {
+    "text": "Хочу записаться на сеанс",
+    "expected": "booking"
+  },
+  {
+    "text": "Можно записаться на пятницу?",
+    "expected": "booking"
+  },
+  {
+    "text": "Как записаться к Соне?",
+    "expected": "booking"
+  },
+  {
+    "text": "Когда можно прийти?",
+    "expected": "booking"
+  },
+  {
+    "text": "Есть свободные даты?",
+    "expected": "booking"
+  },
+  {
+    "text": "Есть свободное окно завтра?",
+    "expected": "booking"
+  },
+  {
+    "text": "Хочу забронировать сеанс",
+    "expected": "booking"
+  },
+  {
+    "text": "Какие слоты доступны?",
+    "expected": "booking"
+  },
+  {
+    "text": "Есть места на этой неделе?",
+    "expected": "booking"
+  },
+  {
+    "text": "Запишите меня на консультацию",
+    "expected": "booking"
+  },
+  {
+    "text": "Можно забронировать время?",
+    "expected": "booking"
+  },
+  {
+    "text": "Когда ближайшая запись?",
+    "expected": "booking"
+  },
+  {
+    "text": "Хочу записаться на тату",
+    "expected": "booking"
+  },
+  {
+    "text": "Свободно ли в субботу?",
+    "expected": "booking"
+  },
+  {
+    "text": "Как попасть на сеанс?",
+    "expected": "booking"
+  },
+  {
+    "text": "Можно прийти вечером?",
+    "expected": "booking"
+  },
+  {
+    "text": "Нужна запись к мастеру",
+    "expected": "booking"
+  },
+  {
+    "text": "Есть окно после обеда?",
+    "expected": "booking"
+  },
+  {
+    "text": "Перенесите запись на пятницу",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Хочу перенести сеанс",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Можно изменить дату записи?",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Отмените мою запись",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Мне нужна отмена",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Я не смогу прийти завтра",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Я опоздаю на сеанс",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Нужно перенести время",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Можно сдвинуть запись на час?",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Отмена записи на субботу",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Хочу изменить время визита",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Не успеваю к назначенному времени",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Перенос на следующую неделю",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Могу я отменить сеанс?",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Давайте перенесем дату",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Запись нужно отменить",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Не смогу приехать на сеанс",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Опоздаю минут на двадцать",
+    "expected": "booking_change"
+  },
+  {
+    "text": "Чем мазать тату?",
+    "expected": "aftercare"
+  },
+  {
+    "text": "Как ухаживать за татуировкой?",
+    "expected": "aftercare"
+  },
+  {
+    "text": "Можно мочить свежую тату?",
+    "expected": "aftercare"
+  },
+  {
+    "text": "Сколько заживает тату?",
+    "expected": "aftercare"
+  },
+  {
+    "text": "Когда снять пленку?",
+    "expected": "aftercare"
+  },
+  {
+    "text": "Появились корочки, что делать?",
+    "expected": "aftercare"
+  },
+  {
+    "text": "Как проходит заживление?",
+    "expected": "aftercare"
+  },
+  {
+    "text": "Можно использовать пантенол?",
+    "expected": "aftercare"
+  },
+  {
+    "text": "Какой уход после тату?",
+    "expected": "aftercare"
+  },
+  {
+    "text": "Что делать после сеанса?",
+    "expected": "aftercare"
+  },
+  {
+    "text": "Сколько времени нельзя мочить тату?",
+    "expected": "aftercare"
+  },
+  {
+    "text": "Можно ли мыться после тату?",
+    "expected": "aftercare"
+  },
+  {
+    "text": "Когда менять пленку?",
+    "expected": "aftercare"
+  },
+  {
+    "text": "Нужно ли мазать кремом?",
+    "expected": "aftercare"
+  },
+  {
+    "text": "Как промывать татуировку?",
+    "expected": "aftercare"
+  },
+  {
+    "text": "Корочка начала шелушиться",
+    "expected": "aftercare"
+  },
+  {
+    "text": "Можно ли в спортзал после сеанса?",
+    "expected": "aftercare"
+  },
+  {
+    "text": "Когда можно в бассейн после тату?",
+    "expected": "aftercare"
+  },
+  {
+    "text": "У меня диабет, можно делать тату?",
+    "expected": "health"
+  },
+  {
+    "text": "Можно ли тату при беременности?",
+    "expected": "health"
+  },
+  {
+    "text": "Есть аллергия на краску",
+    "expected": "health"
+  },
+  {
+    "text": "Какие противопоказания?",
+    "expected": "health"
+  },
+  {
+    "text": "У меня псориаз",
+    "expected": "health"
+  },
+  {
+    "text": "Можно делать тату при экземе?",
+    "expected": "health"
+  },
+  {
+    "text": "Я принимаю антибиотики",
+    "expected": "health"
+  },
+  {
+    "text": "Пью лекарства, это важно?",
+    "expected": "health"
+  },
+  {
+    "text": "У меня высокое давление",
+    "expected": "health"
+  },
+  {
+    "text": "Поднялась температура перед сеансом",
+    "expected": "health"
+  },
+  {
+    "text": "Похоже на инфекцию",
+    "expected": "health"
+  },
+  {
+    "text": "Из тату идет гной",
+    "expected": "health"
+  },
+  {
+    "text": "У меня эпилепсия",
+    "expected": "health"
+  },
+  {
+    "text": "Можно ли с ВИЧ?",
+    "expected": "health"
+  },
+  {
+    "text": "У меня гепатит",
+    "expected": "health"
+  },
+  {
+    "text": "Принимаю антикоагулянты",
+    "expected": "health"
+  },
+  {
+    "text": "Есть воспаление на коже",
+    "expected": "health"
+  },
+  {
+    "text": "Можно ли при простуде?",
+    "expected": "health"
+  },
+  {
+    "text": "Вы испортили мне руку!",
+    "expected": "complaint"
+  },
+  {
+    "text": "Хочу вернуть деньги",
+    "expected": "complaint"
+  },
+  {
+    "text": "Мне плохо сделали тату",
+    "expected": "complaint"
+  },
+  {
+    "text": "Мне не нравится результат",
+    "expected": "complaint"
+  },
+  {
+    "text": "Татуировка получилась кривая",
+    "expected": "complaint"
+  },
+  {
+    "text": "Хочу оставить жалобу",
+    "expected": "complaint"
+  },
+  {
+    "text": "У меня претензия к мастеру",
+    "expected": "complaint"
+  },
+  {
+    "text": "Я недовольна работой",
+    "expected": "complaint"
+  },
+  {
+    "text": "Это ужасная работа",
+    "expected": "complaint"
+  },
+  {
+    "text": "Получился настоящий кошмар",
+    "expected": "complaint"
+  },
+  {
+    "text": "Линия кривая и неровная",
+    "expected": "complaint"
+  },
+  {
+    "text": "Верните мне деньги за сеанс",
+    "expected": "complaint"
+  },
+  {
+    "text": "Результат совсем не нравится",
+    "expected": "complaint"
+  },
+  {
+    "text": "Мастер испортил эскиз",
+    "expected": "complaint"
+  },
+  {
+    "text": "Плохо набили контур",
+    "expected": "complaint"
+  },
+  {
+    "text": "Я недоволен качеством",
+    "expected": "complaint"
+  },
+  {
+    "text": "Хочу оформить возврат денег",
+    "expected": "complaint"
+  },
+  {
+    "text": "Почему работа такая ужасная?",
+    "expected": "complaint"
+  },
+  {
+    "text": "Покажи свои работы",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Можно посмотреть портфолио?",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Есть примеры работ?",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Покажи работы в стиле реализм",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Где посмотреть ваши работы?",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Есть фото ваших работ?",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Покажи галерею",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Можно увидеть примеры работ мастера?",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Есть работы в стиле минимализм?",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Хочу посмотреть портфолио Сони",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Где галерея татуировок?",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Покажите фото своих работ",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Какие работы вы уже делали?",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Есть примеры цветных работ?",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Хочу увидеть работы в графике",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Покажи работы на спине",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Можно посмотреть ваши эскизы?",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Где посмотреть эскизы мастера?",
+    "expected": "portfolio"
+  },
+  {
+    "text": "Предлагаю сотрудничество",
+    "expected": "collaboration"
+  },
+  {
+    "text": "Хотим заказать у вас рекламу",
+    "expected": "collaboration"
+  },
+  {
+    "text": "Интересует бартер",
+    "expected": "collaboration"
+  },
+  {
+    "text": "Давайте сделаем коллаборацию",
+    "expected": "collaboration"
+  },
+  {
+    "text": "Есть предложение о партнерстве",
+    "expected": "collaboration"
+  },
+  {
+    "text": "У вас есть вакансия?",
+    "expected": "collaboration"
+  },
+  {
+    "text": "Можно арендовать место в студии?",
+    "expected": "collaboration"
+  },
+  {
+    "text": "Хочу устроиться к вам мастером",
+    "expected": "collaboration"
+  },
+  {
+    "text": "Предлагаю рекламную интеграцию",
+    "expected": "collaboration"
+  },
+  {
+    "text": "Готовы к сотрудничеству с брендом?",
+    "expected": "collaboration"
+  },
+  {
+    "text": "Можно обсудить партнерский проект?",
+    "expected": "collaboration"
+  },
+  {
+    "text": "Работаете по бартеру?",
+    "expected": "collaboration"
+  },
+  {
+    "text": "Ищете тату-мастера?",
+    "expected": "collaboration"
+  },
+  {
+    "text": "Сколько стоит аренда места?",
+    "expected": "collaboration"
+  },
+  {
+    "text": "Есть вакансия администратора?",
+    "expected": "collaboration"
+  },
+  {
+    "text": "Хотим коллаб с вашей студией",
+    "expected": "collaboration"
+  },
+  {
+    "text": "Предлагаю услуги продвижения",
+    "expected": "collaboration"
+  },
+  {
+    "text": "Можно разместить у вас рекламу?",
+    "expected": "collaboration"
+  },
+  {
+    "text": "Привет",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Здравствуйте",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Добрый день",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Спасибо",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Как дела?",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Окей",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Понятно",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Хочу тату на руку",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Думаю насчет дракона",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Можно черно-белую?",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Какой размер лучше?",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Хочу обсудить идею",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "А вы сегодня работаете?",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Где находится студия?",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Как вас найти?",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Можно со своим эскизом?",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Сколько времени занимает работа?",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Какие стили вы делаете?",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Нужна консультация",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Хочу задать вопрос",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Тату будет больно?",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Можно сделать надпись?",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Есть ли парковка?",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Принимаете карты?",
+    "expected": "ambiguous"
+  },
+  {
+    "text": "Можно прийти с другом?",
+    "expected": "ambiguous"
+  }
+]

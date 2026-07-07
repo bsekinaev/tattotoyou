@@ -411,3 +411,86 @@ async def test_worker_persists_retry_state_after_processing_error(
     assert failures[0]["error_code"] == "TimeoutError"
     assert failures[0]["max_attempts"] == worker_module.settings.incoming_event_max_attempts
     assert failures[0]["retry_delay"].total_seconds() > 0
+
+
+@pytest.mark.asyncio
+async def test_final_fallback_effect_is_saved_to_outbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.workers.tasks import process_telegram_update as worker_module
+
+    event_id = uuid.uuid4()
+    conversation = SimpleNamespace(id=uuid.uuid4())
+    outbound = SimpleNamespace(id=42)
+    delivery = SimpleNamespace(id=uuid.uuid4())
+    session = SimpleNamespace(commit=AsyncMock())
+    message = SimpleNamespace(
+        text="Сколько стоит?",
+        platform="telegram",
+        chat_id="123",
+        message_id="55",
+        user=SimpleNamespace(external_id="7", display_name="Анна", username="anna"),
+    )
+
+    platform_repo = SimpleNamespace(get_or_create=AsyncMock(return_value=SimpleNamespace(id=1)))
+    client_repo = SimpleNamespace(
+        get_or_create=AsyncMock(
+            return_value=SimpleNamespace(id=2, display_name="Анна", username="anna")
+        )
+    )
+    conversation_repo = SimpleNamespace(
+        get_or_create_active=AsyncMock(return_value=conversation),
+        update_activity=AsyncMock(),
+        escalate=AsyncMock(),
+    )
+    message_repo = SimpleNamespace(
+        create_message_once=AsyncMock(
+            side_effect=[
+                (SimpleNamespace(id=41), True),
+                (outbound, True),
+            ]
+        )
+    )
+    notification = SimpleNamespace(id=uuid.uuid4())
+    outbox_repo = SimpleNamespace(
+        create_for_message=AsyncMock(return_value=(delivery, True)),
+        create_notification=AsyncMock(return_value=(notification, True)),
+    )
+
+    monkeypatch.setattr(worker_module, "PlatformRepository", lambda _db: platform_repo)
+    monkeypatch.setattr(worker_module, "ClientRepository", lambda _db: client_repo)
+    monkeypatch.setattr(
+        worker_module,
+        "ConversationRepository",
+        lambda _db: conversation_repo,
+    )
+    monkeypatch.setattr(worker_module, "MessageRepository", lambda _db: message_repo)
+    monkeypatch.setattr(
+        worker_module,
+        "OutboundDeliveryRepository",
+        lambda _db: outbox_repo,
+    )
+
+    result = await worker_module._persist_fallback_effect(
+        db=session,
+        message=message,
+        causation_event_id=event_id,
+    )
+
+    assert result == (delivery.id, notification.id)
+    assert message_repo.create_message_once.await_count == 2
+    outbound_call = message_repo.create_message_once.await_args_list[1].kwargs
+    assert outbound_call["causation_event_id"] == event_id
+    assert outbound_call["is_escalation_trigger"] is True
+    outbox_repo.create_for_message.assert_awaited_once_with(
+        message_id=42,
+        platform="telegram",
+        destination_id="123",
+    )
+    notification_call = outbox_repo.create_notification.await_args.kwargs
+    assert notification_call["platform"] == "telegram"
+    assert notification_call["destination_id"] == str(worker_module.settings.telegram_admin_chat_id)
+    assert notification_call["deduplication_key"] == f"terminal-fallback:event:{event_id}"
+    assert "incoming_event_processing_failed" in notification_call["payload_text"]
+    conversation_repo.escalate.assert_awaited_once_with(conversation)
+    session.commit.assert_awaited_once()
