@@ -24,6 +24,7 @@ from app.infrastructure.db.base import Base
 
 # 🛡️ Импортируем только для линтеров (mypy/ruff), чтобы избежать Circular Import
 if TYPE_CHECKING:
+    from app.domain.bookings.models import TattooApplication
     from app.domain.conversations.models import Conversation
 
 
@@ -104,6 +105,10 @@ class Client(Base):
     # Связи
     platform: Mapped[Platform] = relationship(back_populates="clients")
     conversations: Mapped[list[Conversation]] = relationship(
+        back_populates="client",
+        cascade="all, delete-orphan",
+    )
+    tattoo_applications: Mapped[list[TattooApplication]] = relationship(
         back_populates="client",
         cascade="all, delete-orphan",
     )

@@ -1,0 +1,40 @@
+{% extends "studio/base.html" %}
+{% block title %}Записи — ТАТТУТУЮ{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div>
+    <p class="eyebrow">Расписание</p>
+    <h1>Сеансы</h1>
+    <p class="muted">Предстоящие записи, предоплаты и история.</p>
+  </div>
+</section>
+
+<section class="toolbar-card appointment-tabs">
+  <a class="tab-link {% if current_view == 'upcoming' %}active{% endif %}" href="/studio/appointments?view=upcoming">Ближайшие</a>
+  <a class="tab-link {% if current_view == 'awaiting_deposit' %}active{% endif %}" href="/studio/appointments?view=awaiting_deposit">Ждут предоплату</a>
+  <a class="tab-link {% if current_view == 'history' %}active{% endif %}" href="/studio/appointments?view=history">История</a>
+  <a class="tab-link {% if current_view == 'all' %}active{% endif %}" href="/studio/appointments?view=all">Все</a>
+</section>
+
+<div class="appointment-list">
+  {% for item in items %}
+  <a class="appointment-row" href="/studio/applications/{{ item.application.id }}">
+    <div class="appointment-date">
+      <strong>{{ item.appointment.scheduled_start.astimezone(studio_timezone).strftime('%d.%m') }}</strong>
+      <span>{{ item.appointment.scheduled_start.astimezone(studio_timezone).strftime('%H:%M') }}</span>
+    </div>
+    <div class="appointment-client">
+      <strong>{{ item.client.display_name or 'Гость' }}</strong>
+      <span>{{ item.application.idea or 'Тату-проект без описания' }}</span>
+    </div>
+    <div class="appointment-meta">
+      <span class="status-badge status-{{ item.appointment.status }}">{{ appointment_status_labels[item.appointment.status] }}</span>
+      <span class="lead-badge">{{ deposit_status_labels[item.appointment.deposit_status] }}</span>
+      <small>{{ item.appointment.duration_minutes }} мин{% if item.appointment.quoted_price is not none %} · {{ item.appointment.quoted_price }} ₽{% endif %}</small>
+    </div>
+  </a>
+  {% else %}
+  <div class="empty-state"><p>Записей по выбранному фильтру нет.</p></div>
+  {% endfor %}
+</div>
+{% endblock %}

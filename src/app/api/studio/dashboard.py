@@ -24,6 +24,7 @@ from app.api.studio.auth import (
     require_studio_session,
     validate_studio_session_token,
 )
+from app.api.studio.bookings import APPLICATION_STATUS_LABELS
 from app.core.config import Settings, get_settings
 from app.core.logging import get_logger
 from app.infrastructure.db.repositories.conversation_repository import (
@@ -61,6 +62,7 @@ templates.env.globals.update(
     status_labels=STATUS_LABELS,
     lead_status_labels=LEAD_STATUS_LABELS,
     lead_statuses=LEAD_STATUSES,
+    application_status_labels=APPLICATION_STATUS_LABELS,
 )
 
 

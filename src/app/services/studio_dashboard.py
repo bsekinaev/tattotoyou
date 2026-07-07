@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.logging import get_logger
+from app.domain.bookings.models import TattooApplication
 from app.domain.clients.models import Client, Platform
 from app.domain.conversations.models import (
     CONVERSATION_ACTIVE,
@@ -78,6 +79,7 @@ class ConversationDetail:
     platform: Platform
     messages: list[Message]
     deliveries: dict[int, OutboundDelivery]
+    applications: list[TattooApplication]
 
 
 class StudioDashboardService:
@@ -205,6 +207,7 @@ class StudioDashboardService:
             .options(
                 joinedload(Conversation.client).joinedload(Client.platform),
                 selectinload(Conversation.messages),
+                selectinload(Conversation.tattoo_applications),
             )
         )
         conversation = result.scalar_one_or_none()
@@ -232,6 +235,7 @@ class StudioDashboardService:
             platform=conversation.client.platform,
             messages=messages,
             deliveries=deliveries,
+            applications=list(conversation.tattoo_applications),
         )
 
     async def send_human_reply(

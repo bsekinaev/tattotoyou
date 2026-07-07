@@ -24,6 +24,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 # 🆕 Admin API
 from app.api.admin.conversations import router as admin_conversations_router
 from app.api.admin.knowledge import router as admin_knowledge_router
+from app.api.studio.bookings import router as studio_bookings_router
 from app.api.studio.dashboard import router as studio_router
 from app.api.webhooks.telegram import router as telegram_router
 from app.core.config import get_settings
@@ -278,6 +279,7 @@ def create_app() -> FastAPI:
     # ПОДКЛЮЧЕНИЕ РОУТЕРОВ
     # ============================================
     app.include_router(studio_router, prefix="/studio", include_in_schema=False)
+    app.include_router(studio_bookings_router, prefix="/studio", include_in_schema=False)
     app.include_router(telegram_router, prefix="/webhook", tags=["webhooks"])
     app.include_router(
         admin_knowledge_router,
