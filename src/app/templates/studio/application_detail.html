@@ -105,18 +105,30 @@
           <label>Минут<input type="number" min="1" max="1440" name="duration_minutes" required value="{{ detail.appointment.duration_minutes if detail.appointment else 180 }}"></label>
           <label>Цена ₽<input type="number" min="0" name="quoted_price" value="{{ detail.appointment.quoted_price if detail.appointment and detail.appointment.quoted_price is not none else '' }}"></label>
         </div>
-        <label>Предоплата ₽<input type="number" min="0" name="deposit_amount" value="{{ detail.appointment.deposit_amount if detail.appointment and detail.appointment.deposit_amount is not none else '' }}"></label>
-        <label>Статус предоплаты<select name="deposit_status">{% for value, label in deposit_status_labels.items() %}<option value="{{ value }}" {% if detail.appointment and detail.appointment.deposit_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        {% if not detail.appointment %}
+        <label>Требуемая предоплата ₽<input type="number" min="0" name="deposit_amount" value="" placeholder="0 — не требуется"></label>
+        {% else %}
+        <div class="alert {% if detail.appointment.status == 'canceled' and detail.appointment.deposit_status == 'paid' %}alert-error{% else %}alert-success{% endif %}">
+          Предоплата: {{ deposit_status_labels[detail.appointment.deposit_status] }}{% if detail.appointment.deposit_amount is not none %} · {{ detail.appointment.deposit_amount }} ₽{% endif %}
+          {% if detail.appointment.status == 'canceled' and detail.appointment.deposit_status == 'paid' %}<br><strong>Требуется вернуть предоплату клиенту.</strong>{% endif %}
+        </div>
+        {% endif %}
         <label>Статус записи<select name="status"><option value="draft" {% if not detail.appointment or detail.appointment.status == 'draft' %}selected{% endif %}>Черновик</option><option value="pending" {% if detail.appointment and detail.appointment.status == 'pending' %}selected{% endif %}>Ожидает подтверждения</option><option value="confirmed" {% if detail.appointment and detail.appointment.status == 'confirmed' %}selected{% endif %}>Подтверждена</option></select></label>
         <button class="primary-button full-width" type="submit">Сохранить запись</button>
       </form>
 
       {% if detail.appointment %}
       <div class="appointment-actions">
-        {% if detail.appointment.deposit_status == 'pending' %}
-        <form method="post" action="/studio/appointments/{{ detail.appointment.id }}/deposit/paid"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="application_id" value="{{ detail.application.id }}"><button class="secondary-button full-width" type="submit">Предоплата получена</button></form>
+        {% if detail.appointment.deposit_status == 'not_required' %}
+        <form method="post" action="/studio/appointments/{{ detail.appointment.id }}/deposit/pending" class="booking-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="application_id" value="{{ detail.application.id }}"><label>Сумма предоплаты ₽<input type="number" min="1" name="deposit_amount" required></label><button class="secondary-button full-width" type="submit">Запросить предоплату</button></form>
+        {% elif detail.appointment.deposit_status == 'pending' %}
+        <form method="post" action="/studio/appointments/{{ detail.appointment.id }}/deposit/paid"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="application_id" value="{{ detail.application.id }}"><input type="hidden" name="deposit_amount" value=""><button class="secondary-button full-width" type="submit">Предоплата получена</button></form>
+        <form method="post" action="/studio/appointments/{{ detail.appointment.id }}/deposit/not_required"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="application_id" value="{{ detail.application.id }}"><input type="hidden" name="deposit_amount" value=""><button class="secondary-button full-width" type="submit">Предоплата не требуется</button></form>
         {% elif detail.appointment.deposit_status == 'paid' and detail.appointment.status == 'canceled' %}
-        <form method="post" action="/studio/appointments/{{ detail.appointment.id }}/deposit/refunded"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="application_id" value="{{ detail.application.id }}"><button class="danger-button full-width" type="submit">Предоплата возвращена</button></form>
+        <form method="post" action="/studio/appointments/{{ detail.appointment.id }}/deposit/refunded"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="application_id" value="{{ detail.application.id }}"><input type="hidden" name="deposit_amount" value=""><button class="danger-button full-width" type="submit">Предоплата возвращена</button></form>
+        {% elif detail.appointment.deposit_status == 'refunded' %}
+        <form method="post" action="/studio/appointments/{{ detail.appointment.id }}/deposit/pending" class="booking-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="application_id" value="{{ detail.application.id }}"><label>Новая предоплата ₽<input type="number" min="1" name="deposit_amount" required value="{{ detail.appointment.deposit_amount or '' }}"></label><button class="secondary-button full-width" type="submit">Запросить новую предоплату</button></form>
+        <form method="post" action="/studio/appointments/{{ detail.appointment.id }}/deposit/not_required"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="application_id" value="{{ detail.application.id }}"><input type="hidden" name="deposit_amount" value=""><button class="secondary-button full-width" type="submit">Предоплата больше не требуется</button></form>
         {% endif %}
         {% if detail.appointment.status in ('draft', 'pending') %}
         <form method="post" action="/studio/appointments/{{ detail.appointment.id }}/status/confirmed"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="application_id" value="{{ detail.application.id }}"><input type="hidden" name="reason" value=""><button class="primary-button full-width" type="submit">Подтвердить сеанс</button></form>

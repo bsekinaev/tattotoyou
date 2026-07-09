@@ -290,7 +290,6 @@ async def save_appointment(
     duration_minutes: Annotated[int, Form(ge=1, le=1440)],
     quoted_price: Annotated[str, Form()] = "",
     deposit_amount: Annotated[str, Form()] = "",
-    deposit_status: Annotated[str, Form()] = DEPOSIT_NOT_REQUIRED,
     appointment_status: Annotated[str, Form(alias="status")] = APPOINTMENT_DRAFT,
     db: AsyncSession = Depends(get_db_session),
 ) -> RedirectResponse:
@@ -302,7 +301,6 @@ async def save_appointment(
             duration_minutes=duration_minutes,
             quoted_price=_optional_int(quoted_price),
             deposit_amount=_optional_int(deposit_amount),
-            deposit_status=deposit_status,
             status=appointment_status,
         )
     except LookupError as exc:
@@ -345,10 +343,15 @@ async def transition_deposit(
     appointment_id: uuid.UUID,
     target_status: str,
     application_id: Annotated[uuid.UUID, Form()],
+    deposit_amount: Annotated[str, Form()] = "",
     db: AsyncSession = Depends(get_db_session),
 ) -> RedirectResponse:
     try:
-        await StudioBookingService(db).transition_deposit(appointment_id, target_status)
+        await StudioBookingService(db).transition_deposit(
+            appointment_id,
+            target_status,
+            deposit_amount=_optional_int(deposit_amount),
+        )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="Appointment not found") from exc
     except ValueError as exc:
