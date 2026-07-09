@@ -34,3 +34,7 @@ class TestIntentClassifier:
         assert (
             IntentClassifier.classify("Подскажите, а сколько стоит забить всю спину?") == "pricing"
         )
+
+
+def test_equal_intent_scores_use_neutral_confidence() -> None:
+    assert IntentClassifier._confidence(2, 2) == 0.5

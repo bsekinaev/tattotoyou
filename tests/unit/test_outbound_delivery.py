@@ -576,3 +576,107 @@ async def test_delivery_worker_persists_transient_failure(
     assert failure_calls[0]["permanent"] is False
     assert failure_calls[0]["error_code"] == "PlatformHTTP503"
     failure_session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_notification_create_returns_inserted_delivery() -> None:
+    inserted_id = uuid.uuid4()
+    inserted = _delivery(
+        id=inserted_id,
+        message_id=None,
+        delivery_kind=OUTBOUND_KIND_NOTIFICATION,
+        payload_text="Уведомление",
+        deduplication_key="escalation:event:inserted",
+    )
+    session = FakeSession([ScalarResult(inserted_id), ScalarResult(inserted)])
+
+    delivery, created = await OutboundDeliveryRepository(session).create_notification(
+        platform="telegram",
+        destination_id="777",
+        payload_text="Уведомление",
+        deduplication_key="escalation:event:inserted",
+    )
+
+    assert delivery is inserted
+    assert created is True
+
+
+@pytest.mark.asyncio
+async def test_notification_create_fails_when_upsert_row_is_not_visible() -> None:
+    session = FakeSession([ScalarResult(None), ScalarResult(None)])
+
+    with pytest.raises(
+        RuntimeError,
+        match="Notification delivery upsert completed without a visible row",
+    ):
+        await OutboundDeliveryRepository(session).create_notification(
+            platform="telegram",
+            destination_id="777",
+            payload_text="Уведомление",
+            deduplication_key="escalation:event:missing",
+        )
+
+
+def test_escalation_deduplication_key_without_causation_event() -> None:
+    conversation_id = uuid.uuid4()
+
+    key = ConversationService._escalation_deduplication_key(
+        conversation_id=conversation_id,
+        outbound_message_id=42,
+        causation_event_id=None,
+    )
+
+    assert key == f"escalation:conversation:{conversation_id}:message:42"
+
+
+@pytest.mark.asyncio
+async def test_delivery_worker_marks_missing_message_as_permanent_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delivery = _delivery(status=OUTBOUND_DELIVERY_SENDING, attempts=1)
+    session = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    failure_calls: list[dict[str, Any]] = []
+
+    class DeliveryRepository:
+        def __init__(self, _session: Any) -> None:
+            pass
+
+        async def claim(self, *_args: Any, **_kwargs: Any) -> Any:
+            return delivery
+
+        async def mark_failure(self, *_args: Any, **kwargs: Any) -> Any:
+            failure_calls.append(kwargs)
+            return delivery
+
+    class Messages:
+        def __init__(self, _session: Any) -> None:
+            pass
+
+        async def get_by_id(self, _message_id: int) -> Any:
+            return None
+
+    monkeypatch.setattr(
+        delivery_task_module,
+        "async_session_factory",
+        lambda: AsyncSessionContext(session),
+    )
+    monkeypatch.setattr(
+        delivery_task_module,
+        "OutboundDeliveryRepository",
+        DeliveryRepository,
+    )
+    monkeypatch.setattr(delivery_task_module, "MessageRepository", Messages)
+
+    outcome = await delivery_task_module._deliver_outbound(delivery.id)
+
+    assert outcome.status == OUTBOUND_DELIVERY_FAILED
+    assert outcome.attempts == 1
+    assert failure_calls == [
+        {
+            "error_code": "MessageNotFound",
+            "max_attempts": delivery_task_module.settings.outbound_delivery_max_attempts,
+            "retry_delay": timedelta(0),
+            "permanent": True,
+        }
+    ]
+    session.commit.assert_awaited_once()

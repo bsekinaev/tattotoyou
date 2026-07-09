@@ -1,12 +1,12 @@
 # Repository validation baseline
 
-Date: 2026-07-08
-Patch: `AI Quality + Escalation Hardening`
+Date: 2026-07-09
+Patch: `Booking Integrity + Financial Safety`
 
-Этот документ фиксирует проверяемую инженерную базу после крупного AI/safety
-патча. Production Gate ранее подтверждён зелёным GitHub Actions; текущий патч
-должен повторно пройти те же quality, PostgreSQL integration и container gates
-после применения в основном репозитории.
+Этот документ фиксирует проверяемую инженерную базу после закрытия денежных и
+календарных инвариантов. AI Quality + Escalation Hardening остаётся частью
+baseline; текущий патч дополнительно исключает обход state machine предоплаты и
+защищает те же правила на уровне PostgreSQL.
 
 ## Активный execution path
 
@@ -34,13 +34,13 @@ Terminal Inbox failure также не вызывает Telegram напряму�
 - Python compileall: PASS;
 - Ruff lint: PASS;
 - Ruff format: PASS;
-- Alembic graph: одна base `2b5c075445e1`, один head `i9d0e1f2a3b4`;
+- Alembic graph: одна base `2b5c075445e1`, один head `j0e1f2a3b4c5`;
 - intent regression dataset: **169 фраз**;
-- unit tests: **379 PASS**;
-- statement coverage: **74.54%**;
+- unit tests: **411 PASS**;
+- statement coverage: **77.32%**;
 - coverage gate: **74%**.
 
-PostgreSQL integration collection содержит 10 тестов. Полный запуск с реальной
+PostgreSQL integration collection содержит 13 тестов. Полный запуск с реальной
 БД и Docker image выполняется GitHub Actions и локально командой
 `scripts/run_postgres_integration.py`; в среде подготовки патча Docker daemon
 недоступен.
@@ -77,3 +77,9 @@ python scripts/validate_repository.py --type-check
    момент фиксации бизнес-эффекта.
 7. Новая бизнес-функция сопровождается unit или PostgreSQL integration-тестом.
 8. В проекте должен оставаться ровно один Alembic head.
+9. Форма расписания не изменяет `deposit_status`; все переходы проходят через
+   `transition_deposit`.
+10. Финансовые cross-field invariants дублируются PostgreSQL CHECK constraints.
+11. `confirmed_at` меняется только при реальном переходе в `confirmed`.
+12. Отменённая запись с `deposit_status=paid` видна в очереди `refund_due` до
+    фиксации возврата.

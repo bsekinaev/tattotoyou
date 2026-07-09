@@ -288,7 +288,31 @@ class Appointment(Base):
             "deposit_amount IS NULL OR deposit_amount >= 0",
             name="ck_appointments_deposit_amount_nonnegative",
         ),
+        CheckConstraint(
+            "(deposit_status = 'not_required' AND "
+            "(deposit_amount IS NULL OR deposit_amount = 0)) OR "
+            "(deposit_status IN ('pending', 'paid', 'refunded') AND deposit_amount IS NOT NULL AND deposit_amount > 0)",
+            name="ck_appointments_deposit_amount_by_status",
+        ),
+        CheckConstraint(
+            "quoted_price IS NULL OR deposit_amount IS NULL OR deposit_amount <= quoted_price",
+            name="ck_appointments_deposit_not_above_price",
+        ),
+        CheckConstraint(
+            "deposit_status != 'refunded' OR status = 'canceled'",
+            name="ck_appointments_refund_requires_cancellation",
+        ),
+        CheckConstraint(
+            "status NOT IN ('confirmed', 'completed') OR "
+            "deposit_status IN ('paid', 'not_required')",
+            name="ck_appointments_confirmation_financial_state",
+        ),
         Index("ix_appointments_status_start", "status", "scheduled_start"),
+        Index(
+            "ix_appointments_refund_due",
+            "canceled_at",
+            postgresql_where=text("status = 'canceled' AND deposit_status = 'paid'"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

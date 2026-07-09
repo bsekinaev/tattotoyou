@@ -52,6 +52,11 @@ def test_product_templates_include_booking_workflow() -> None:
 
     assert "Параметры проекта" in detail
     assert "Предоплата получена" in detail
+    assert "Нужен возврат" in Path("src/app/templates/studio/appointments.html").read_text(
+        encoding="utf-8"
+    )
+    assert 'name="deposit_status"' not in detail
+    assert "Запросить предоплату" in detail
     assert "/studio/applications" in base
     assert "/studio/appointments" in base
 
@@ -118,3 +123,40 @@ def test_booking_form_errors_redirect_back_to_application() -> None:
 
     assert response.status_code == 303
     assert response.headers["location"].startswith(f"/studio/applications/{application_id}?error=")
+
+
+def test_deposit_route_forwards_amount_to_state_machine(monkeypatch) -> None:
+    import asyncio
+    import uuid
+
+    calls: list[tuple[uuid.UUID, str, int | None]] = []
+
+    class FakeService:
+        def __init__(self, _db):
+            pass
+
+        async def transition_deposit(
+            self,
+            appointment_id: uuid.UUID,
+            target_status: str,
+            *,
+            deposit_amount: int | None = None,
+        ) -> None:
+            calls.append((appointment_id, target_status, deposit_amount))
+
+    monkeypatch.setattr(bookings_module, "StudioBookingService", FakeService)
+    appointment_id = uuid.uuid4()
+    application_id = uuid.uuid4()
+
+    response = asyncio.run(
+        bookings_module.transition_deposit(
+            appointment_id=appointment_id,
+            target_status="pending",
+            application_id=application_id,
+            deposit_amount="1500",
+            db=None,
+        )
+    )
+
+    assert response.status_code == 303
+    assert calls == [(appointment_id, "pending", 1500)]

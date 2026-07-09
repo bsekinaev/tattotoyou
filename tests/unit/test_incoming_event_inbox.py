@@ -494,3 +494,220 @@ async def test_final_fallback_effect_is_saved_to_outbox(
     assert "incoming_event_processing_failed" in notification_call["payload_text"]
     conversation_repo.escalate.assert_awaited_once_with(conversation)
     session.commit.assert_awaited_once()
+
+
+def test_permanently_failed_task_persists_terminal_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.workers.tasks import process_telegram_update as worker_module
+
+    event_id = uuid.uuid4()
+    payload = {"update_id": 101}
+    monkeypatch.setattr(
+        worker_module,
+        "_process_incoming_event",
+        AsyncMock(
+            return_value=worker_module.EventProcessingOutcome(
+                status=INCOMING_EVENT_FAILED,
+                payload=payload,
+                attempts=worker_module.settings.incoming_event_max_attempts,
+            )
+        ),
+    )
+    fallback = AsyncMock()
+    monkeypatch.setattr(worker_module, "_send_fallback", fallback)
+
+    result = worker_module.process_telegram_update_task.run(str(event_id))
+
+    assert result == {"status": INCOMING_EVENT_FAILED, "event_id": str(event_id)}
+    fallback.assert_awaited_once_with(payload, causation_event_id=event_id)
+
+
+@pytest.mark.asyncio
+async def test_terminal_fallback_rebuilds_missing_delivery_and_dispatches_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.workers.tasks import process_telegram_update as worker_module
+
+    event_id = uuid.uuid4()
+    existing_outbound = SimpleNamespace(id=42, platform_message_id=None)
+    delivery = SimpleNamespace(id=uuid.uuid4())
+    session = SimpleNamespace(commit=AsyncMock())
+    message = SimpleNamespace(
+        text="Сколько стоит?",
+        platform="telegram",
+        chat_id="123",
+        message_id="55",
+        user=SimpleNamespace(external_id="7", display_name="Анна", username="anna"),
+    )
+    adapter = SimpleNamespace(
+        parse_message=AsyncMock(return_value=message),
+        close=AsyncMock(),
+    )
+    message_repo = SimpleNamespace(
+        get_by_causation=AsyncMock(return_value=existing_outbound),
+    )
+    outbox_repo = SimpleNamespace(
+        get_by_message_id=AsyncMock(return_value=None),
+        create_for_message=AsyncMock(return_value=(delivery, True)),
+    )
+    dispatch = MagicMock()
+
+    monkeypatch.setattr(worker_module, "TelegramAdapter", lambda: adapter)
+    monkeypatch.setattr(
+        worker_module,
+        "async_session_factory",
+        lambda: AsyncSessionContext(session),
+    )
+    monkeypatch.setattr(worker_module, "MessageRepository", lambda _db: message_repo)
+    monkeypatch.setattr(
+        worker_module,
+        "OutboundDeliveryRepository",
+        lambda _db: outbox_repo,
+    )
+    monkeypatch.setattr(worker_module.deliver_outbound_message_task, "delay", dispatch)
+
+    await worker_module._send_fallback(
+        {"update_id": 101},
+        causation_event_id=event_id,
+    )
+
+    message_repo.get_by_causation.assert_awaited_once_with(event_id, "outbound")
+    outbox_repo.get_by_message_id.assert_awaited_once_with(42)
+    outbox_repo.create_for_message.assert_awaited_once_with(
+        message_id=42,
+        platform="telegram",
+        destination_id="123",
+    )
+    session.commit.assert_awaited_once()
+    dispatch.assert_called_once_with(str(delivery.id))
+    adapter.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_terminal_fallback_persists_new_effect_when_no_response_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.workers.tasks import process_telegram_update as worker_module
+
+    event_id = uuid.uuid4()
+    delivery_ids = (uuid.uuid4(), uuid.uuid4())
+    session = SimpleNamespace(commit=AsyncMock())
+    message = SimpleNamespace(
+        text="Помогите",
+        platform="telegram",
+        chat_id="123",
+        message_id="55",
+        user=SimpleNamespace(external_id="7", display_name="Анна", username="anna"),
+    )
+    adapter = SimpleNamespace(
+        parse_message=AsyncMock(return_value=message),
+        close=AsyncMock(),
+    )
+    message_repo = SimpleNamespace(get_by_causation=AsyncMock(return_value=None))
+    persist = AsyncMock(return_value=delivery_ids)
+    dispatch = MagicMock()
+
+    monkeypatch.setattr(worker_module, "TelegramAdapter", lambda: adapter)
+    monkeypatch.setattr(
+        worker_module,
+        "async_session_factory",
+        lambda: AsyncSessionContext(session),
+    )
+    monkeypatch.setattr(worker_module, "MessageRepository", lambda _db: message_repo)
+    monkeypatch.setattr(
+        worker_module,
+        "OutboundDeliveryRepository",
+        lambda _db: SimpleNamespace(),
+    )
+    monkeypatch.setattr(worker_module, "_persist_fallback_effect", persist)
+    monkeypatch.setattr(worker_module.deliver_outbound_message_task, "delay", dispatch)
+
+    await worker_module._send_fallback(
+        {"update_id": 102},
+        causation_event_id=event_id,
+    )
+
+    persist.assert_awaited_once_with(
+        db=session,
+        message=message,
+        causation_event_id=event_id,
+    )
+    assert [call.args[0] for call in dispatch.call_args_list] == [
+        str(delivery_ids[0]),
+        str(delivery_ids[1]),
+    ]
+    adapter.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_terminal_fallback_without_event_persists_plain_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.workers.tasks import process_telegram_update as worker_module
+
+    conversation = SimpleNamespace(id=uuid.uuid4())
+    inbound = SimpleNamespace(id=41)
+    outbound = SimpleNamespace(id=42)
+    delivery = SimpleNamespace(id=uuid.uuid4())
+    notification = SimpleNamespace(id=uuid.uuid4())
+    session = SimpleNamespace(commit=AsyncMock())
+    message = SimpleNamespace(
+        text="Сколько стоит?",
+        platform="telegram",
+        chat_id="123",
+        message_id="55",
+        user=SimpleNamespace(external_id="7", display_name="Анна", username="anna"),
+    )
+
+    platform_repo = SimpleNamespace(get_or_create=AsyncMock(return_value=SimpleNamespace(id=1)))
+    client_repo = SimpleNamespace(
+        get_or_create=AsyncMock(
+            return_value=SimpleNamespace(id=2, display_name="Анна", username="anna")
+        )
+    )
+    conversation_repo = SimpleNamespace(
+        get_or_create_active=AsyncMock(return_value=conversation),
+        update_activity=AsyncMock(),
+        escalate=AsyncMock(),
+    )
+    message_repo = SimpleNamespace(
+        create_message=AsyncMock(side_effect=[inbound, outbound]),
+    )
+    outbox_repo = SimpleNamespace(
+        create_for_message=AsyncMock(return_value=(delivery, True)),
+        create_notification=AsyncMock(return_value=(notification, True)),
+    )
+
+    monkeypatch.setattr(worker_module, "PlatformRepository", lambda _db: platform_repo)
+    monkeypatch.setattr(worker_module, "ClientRepository", lambda _db: client_repo)
+    monkeypatch.setattr(
+        worker_module,
+        "ConversationRepository",
+        lambda _db: conversation_repo,
+    )
+    monkeypatch.setattr(worker_module, "MessageRepository", lambda _db: message_repo)
+    monkeypatch.setattr(
+        worker_module,
+        "OutboundDeliveryRepository",
+        lambda _db: outbox_repo,
+    )
+
+    result = await worker_module._persist_fallback_effect(
+        db=session,
+        message=message,
+        causation_event_id=None,
+    )
+
+    assert result == (delivery.id, notification.id)
+    assert message_repo.create_message.await_count == 2
+    inbound_call = message_repo.create_message.await_args_list[0].kwargs
+    outbound_call = message_repo.create_message.await_args_list[1].kwargs
+    assert inbound_call["direction"] == "inbound"
+    assert outbound_call["direction"] == "outbound"
+    assert outbound_call["is_escalation_trigger"] is True
+    notification_call = outbox_repo.create_notification.await_args.kwargs
+    assert notification_call["deduplication_key"] == (
+        f"terminal-fallback:conversation:{conversation.id}:message:{outbound.id}"
+    )
+    session.commit.assert_awaited_once()

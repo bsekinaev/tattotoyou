@@ -91,7 +91,7 @@ DEPOSIT_TRANSITIONS: dict[str, tuple[str, ...]] = {
 }
 
 APPLICATION_FILTERS = ("active", *APPLICATION_STATUSES, "all")
-APPOINTMENT_FILTERS = ("upcoming", "awaiting_deposit", "history", "all")
+APPOINTMENT_FILTERS = ("upcoming", "awaiting_deposit", "refund_due", "history", "all")
 
 LEAD_STATUS_BY_APPLICATION_STATUS = {
     APPLICATION_NEW: "new",
@@ -115,6 +115,10 @@ class InvalidAppointmentTransitionError(ValueError):
 
 class AppointmentConflictError(ValueError):
     """Активная запись пересекается с другим сеансом."""
+
+
+class InvalidDepositTransitionError(ValueError):
+    """Переход или финансовое состояние предоплаты некорректны."""
 
 
 @dataclass(slots=True)
@@ -376,7 +380,6 @@ class StudioBookingService:
         duration_minutes: int,
         quoted_price: int | None,
         deposit_amount: int | None,
-        deposit_status: str,
         status: str,
     ) -> Appointment:
         if scheduled_start.tzinfo is None or scheduled_start.utcoffset() is None:
@@ -385,15 +388,8 @@ class StudioBookingService:
             raise ValueError("Appointment duration must be between 1 and 1440 minutes")
         _validate_money(quoted_price, "Quoted price")
         _validate_money(deposit_amount, "Deposit amount")
-        if deposit_status not in DEPOSIT_STATUSES:
-            raise ValueError("Unknown deposit status")
         if status not in (APPOINTMENT_DRAFT, APPOINTMENT_PENDING, APPOINTMENT_CONFIRMED):
             raise ValueError("Unsupported appointment status for schedule form")
-        if status == APPOINTMENT_CONFIRMED and deposit_status not in (
-            DEPOSIT_PAID,
-            DEPOSIT_NOT_REQUIRED,
-        ):
-            raise ValueError("Confirming an appointment requires paid or waived deposit")
 
         application = await self._locked_application(application_id)
         if application.status in (
@@ -409,18 +405,41 @@ class StudioBookingService:
             .where(Appointment.application_id == application.id)
             .with_for_update()
         )
-        if appointment is None:
-            appointment = Appointment(application_id=application.id)
-            self.db.add(appointment)
-        elif appointment.status == APPOINTMENT_COMPLETED:
-            raise InvalidAppointmentTransitionError("Completed appointment cannot be edited")
-        elif (
-            status != appointment.status
-            and status not in APPOINTMENT_TRANSITIONS[appointment.status]
-        ):
-            raise InvalidAppointmentTransitionError(
-                f"Cannot move appointment from {appointment.status} to {status}"
+        is_new = appointment is None
+        if is_new:
+            normalized_deposit_amount = deposit_amount if deposit_amount not in (None, 0) else None
+            deposit_status = (
+                DEPOSIT_PENDING if normalized_deposit_amount is not None else DEPOSIT_NOT_REQUIRED
             )
+            appointment = Appointment(
+                application_id=application.id,
+                deposit_amount=normalized_deposit_amount,
+                deposit_status=deposit_status,
+            )
+            self.db.add(appointment)
+            previous_status: str | None = None
+        else:
+            previous_status = appointment.status
+            if appointment.status == APPOINTMENT_COMPLETED:
+                raise InvalidAppointmentTransitionError("Completed appointment cannot be edited")
+            if (
+                status != appointment.status
+                and status not in APPOINTMENT_TRANSITIONS[appointment.status]
+            ):
+                raise InvalidAppointmentTransitionError(
+                    f"Cannot move appointment from {appointment.status} to {status}"
+                )
+            if deposit_amount is not None and deposit_amount != appointment.deposit_amount:
+                raise InvalidDepositTransitionError(
+                    "Deposit amount can be changed only through the deposit workflow"
+                )
+
+        _validate_appointment_financials(
+            quoted_price=quoted_price,
+            deposit_amount=appointment.deposit_amount,
+            deposit_status=appointment.deposit_status,
+            appointment_status=status,
+        )
 
         appointment.scheduled_start = scheduled_start.astimezone(UTC)
         appointment.duration_minutes = duration_minutes
@@ -428,8 +447,6 @@ class StudioBookingService:
             minutes=duration_minutes
         )
         appointment.quoted_price = quoted_price
-        appointment.deposit_amount = deposit_amount
-        appointment.deposit_status = deposit_status
         appointment.status = status
         appointment.canceled_reason = None
         appointment.canceled_at = None
@@ -455,7 +472,8 @@ class StudioBookingService:
                 reason="Время сеанса ожидает подтверждения предоплаты",
             )
         elif status == APPOINTMENT_CONFIRMED:
-            appointment.confirmed_at = datetime.now(UTC)
+            if previous_status != APPOINTMENT_CONFIRMED:
+                appointment.confirmed_at = datetime.now(UTC)
             await self._move_application_for_appointment(
                 application,
                 APPLICATION_BOOKED,
@@ -496,6 +514,13 @@ class StudioBookingService:
             raise InvalidAppointmentTransitionError(
                 "Confirming an appointment requires paid or waived deposit"
             )
+
+        _validate_appointment_financials(
+            quoted_price=appointment.quoted_price,
+            deposit_amount=appointment.deposit_amount,
+            deposit_status=appointment.deposit_status,
+            appointment_status=target_status,
+        )
 
         application = await self._locked_application(appointment.application_id)
         appointment.status = target_status
@@ -554,19 +579,47 @@ class StudioBookingService:
         self,
         appointment_id: uuid.UUID,
         target_status: str,
+        *,
+        deposit_amount: int | None = None,
     ) -> Appointment:
         if target_status not in DEPOSIT_STATUSES:
-            raise ValueError("Unknown deposit status")
+            raise InvalidDepositTransitionError("Unknown deposit status")
         appointment = await self._locked_appointment(appointment_id)
         if target_status not in DEPOSIT_TRANSITIONS[appointment.deposit_status]:
-            raise ValueError(
+            raise InvalidDepositTransitionError(
                 f"Cannot move deposit from {appointment.deposit_status} to {target_status}"
             )
 
+        next_amount = appointment.deposit_amount
+        if target_status == DEPOSIT_PENDING:
+            if deposit_amount is not None:
+                _validate_money(deposit_amount, "Deposit amount")
+                next_amount = deposit_amount
+            if next_amount is None or next_amount <= 0:
+                raise InvalidDepositTransitionError(
+                    "Pending deposit requires a positive deposit amount"
+                )
+        elif deposit_amount is not None and deposit_amount != appointment.deposit_amount:
+            raise InvalidDepositTransitionError(
+                "Deposit amount can be changed only when deposit becomes pending"
+            )
+
+        if target_status == DEPOSIT_NOT_REQUIRED:
+            next_amount = None
         if target_status == DEPOSIT_REFUNDED and appointment.status != APPOINTMENT_CANCELED:
-            raise ValueError("Deposit can be refunded only after appointment cancellation")
+            raise InvalidDepositTransitionError(
+                "Deposit can be refunded only after appointment cancellation"
+            )
+
+        _validate_appointment_financials(
+            quoted_price=appointment.quoted_price,
+            deposit_amount=next_amount,
+            deposit_status=target_status,
+            appointment_status=appointment.status,
+        )
 
         appointment.deposit_status = target_status
+        appointment.deposit_amount = next_amount
         application = await self._locked_application(appointment.application_id)
         if target_status == DEPOSIT_PENDING:
             await self._move_application_for_appointment(
@@ -604,6 +657,11 @@ class StudioBookingService:
             query = query.where(
                 Appointment.deposit_status == DEPOSIT_PENDING,
                 Appointment.status.in_((APPOINTMENT_DRAFT, APPOINTMENT_PENDING)),
+            )
+        elif view == "refund_due":
+            query = query.where(
+                Appointment.status == APPOINTMENT_CANCELED,
+                Appointment.deposit_status == DEPOSIT_PAID,
             )
         elif view == "history":
             query = query.where(
@@ -723,8 +781,14 @@ class StudioBookingService:
                 raise InvalidApplicationTransitionError(
                     f"Cannot align application {application.status} with appointment {target_status}"
                 )
-            step_reason = reason if next_status == target_status else "Этап создан автоматически"
-            await self._set_application_status(application, next_status, reason=step_reason)
+            is_automatic_step = next_status != target_status
+            step_reason = reason if not is_automatic_step else "Этап создан автоматически"
+            await self._set_application_status(
+                application,
+                next_status,
+                reason=step_reason,
+                actor="system" if is_automatic_step else "studio",
+            )
 
     async def _set_application_status(
         self,
@@ -732,6 +796,7 @@ class StudioBookingService:
         target_status: str,
         *,
         reason: str | None,
+        actor: str = "studio",
     ) -> None:
         previous = application.status
         application.status = target_status
@@ -745,7 +810,7 @@ class StudioBookingService:
                 application_id=application.id,
                 from_status=previous,
                 to_status=target_status,
-                actor="studio",
+                actor=actor,
                 reason=_optional_text(reason, 2000),
             )
         )
@@ -768,6 +833,42 @@ def _required_text(value: str | None, max_length: int) -> str:
     if normalized is None:
         raise ValueError("Value is required")
     return normalized
+
+
+def _validate_appointment_financials(
+    *,
+    quoted_price: int | None,
+    deposit_amount: int | None,
+    deposit_status: str,
+    appointment_status: str,
+) -> None:
+    _validate_money(quoted_price, "Quoted price")
+    _validate_money(deposit_amount, "Deposit amount")
+    if deposit_status not in DEPOSIT_STATUSES:
+        raise InvalidDepositTransitionError("Unknown deposit status")
+    if deposit_status == DEPOSIT_NOT_REQUIRED:
+        if deposit_amount not in (None, 0):
+            raise InvalidDepositTransitionError(
+                "Deposit amount must be empty when deposit is not required"
+            )
+    elif deposit_amount is None or deposit_amount <= 0:
+        raise InvalidDepositTransitionError(
+            f"Deposit status {deposit_status} requires a positive deposit amount"
+        )
+    if quoted_price is not None and deposit_amount is not None and deposit_amount > quoted_price:
+        raise InvalidDepositTransitionError("Deposit amount cannot exceed the quoted price")
+    if deposit_status == DEPOSIT_REFUNDED and appointment_status != APPOINTMENT_CANCELED:
+        raise InvalidDepositTransitionError("Refunded deposit requires a canceled appointment")
+    if appointment_status in (
+        APPOINTMENT_CONFIRMED,
+        APPOINTMENT_COMPLETED,
+    ) and deposit_status not in (
+        DEPOSIT_PAID,
+        DEPOSIT_NOT_REQUIRED,
+    ):
+        raise InvalidDepositTransitionError(
+            "Confirmed or completed appointment requires paid or waived deposit"
+        )
 
 
 def _validate_budget(budget_min: int | None, budget_max: int | None) -> None:

@@ -12,6 +12,7 @@
 <section class="toolbar-card appointment-tabs">
   <a class="tab-link {% if current_view == 'upcoming' %}active{% endif %}" href="/studio/appointments?view=upcoming">Ближайшие</a>
   <a class="tab-link {% if current_view == 'awaiting_deposit' %}active{% endif %}" href="/studio/appointments?view=awaiting_deposit">Ждут предоплату</a>
+  <a class="tab-link {% if current_view == 'refund_due' %}active{% endif %}" href="/studio/appointments?view=refund_due">Нужен возврат</a>
   <a class="tab-link {% if current_view == 'history' %}active{% endif %}" href="/studio/appointments?view=history">История</a>
   <a class="tab-link {% if current_view == 'all' %}active{% endif %}" href="/studio/appointments?view=all">Все</a>
 </section>
@@ -30,6 +31,7 @@
     <div class="appointment-meta">
       <span class="status-badge status-{{ item.appointment.status }}">{{ appointment_status_labels[item.appointment.status] }}</span>
       <span class="lead-badge">{{ deposit_status_labels[item.appointment.deposit_status] }}</span>
+      {% if item.appointment.status == 'canceled' and item.appointment.deposit_status == 'paid' %}<span class="status-badge status-canceled">Нужен возврат</span>{% endif %}
       <small>{{ item.appointment.duration_minutes }} мин{% if item.appointment.quoted_price is not none %} · {{ item.appointment.quoted_price }} ₽{% endif %}</small>
     </div>
   </a>
